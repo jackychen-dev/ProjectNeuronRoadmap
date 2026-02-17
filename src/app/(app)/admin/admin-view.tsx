@@ -1,0 +1,181 @@
+"use client";
+
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { createUser, updateUserRole } from "@/lib/actions/admin";
+import { updateInitiativeDates } from "@/lib/actions/initiatives";
+
+interface User {
+  id: string;
+  email: string;
+  name?: string | null;
+  role: string;
+  createdAt: string;
+}
+
+interface RefinementInit {
+  id: string;
+  name: string;
+  plannedStartMonth?: string | null;
+  plannedEndMonth?: string | null;
+  workstream: { name: string };
+}
+
+export function AdminView({
+  users: initialUsers,
+  refinementInitiatives,
+}: {
+  users: User[];
+  refinementInitiatives: RefinementInit[];
+}) {
+  const [users, setUsers] = useState(initialUsers);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("MEMBER");
+
+  const handleAddUser = async () => {
+    if (!email) return;
+    await createUser({ email, name, password, role });
+    setEmail("");
+    setName("");
+    setPassword("");
+    window.location.reload();
+  };
+
+  const handleRoleChange = async (id: string, newRole: string) => {
+    await updateUserRole(id, newRole);
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role: newRole } : u)));
+  };
+
+  const handleRefineDate = async (id: string, start: string, end: string) => {
+    await updateInitiativeDates(id, start || null, end || null);
+    window.location.reload();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Admin</h1>
+        <p className="text-muted-foreground mt-1">User management &amp; date refinement</p>
+      </div>
+
+      {/* Add user */}
+      <Card>
+        <CardHeader><CardTitle>Add User</CardTitle></CardHeader>
+        <CardContent>
+          <div className="flex gap-3 flex-wrap items-end">
+            <div>
+              <label className="text-xs font-medium">Email *</label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} className="w-48" />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Name</label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="w-40" />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Password *</label>
+              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-36" />
+            </div>
+            <div>
+              <label className="text-xs font-medium">Role</label>
+              <select className="rounded-md border px-3 py-2 text-sm bg-background" value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="MEMBER">Member</option>
+                <option value="ADMIN">Admin</option>
+              </select>
+            </div>
+            <Button onClick={handleAddUser}>Add</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Users table */}
+      <Card>
+        <CardHeader><CardTitle>Users ({users.length})</CardTitle></CardHeader>
+        <CardContent>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left p-2">Email</th>
+                <th className="text-left p-2">Name</th>
+                <th className="text-left p-2">Role</th>
+                <th className="text-left p-2">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-b">
+                  <td className="p-2">{u.email}</td>
+                  <td className="p-2">{u.name || "—"}</td>
+                  <td className="p-2">
+                    <select
+                      className="rounded border px-2 py-1 text-xs bg-background"
+                      value={u.role}
+                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                    >
+                      <option value="MEMBER">Member</option>
+                      <option value="ADMIN">Admin</option>
+                    </select>
+                  </td>
+                  <td className="p-2 text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      {/* Refine Dates */}
+      {refinementInitiatives.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>⚠️ Initiatives Needing Date Refinement</CardTitle></CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              These initiatives have approximate dates from the initial roadmap. Edit start/end months below.
+            </p>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left p-2">Initiative</th>
+                  <th className="text-left p-2">Workstream</th>
+                  <th className="text-left p-2">Start (YYYY-MM)</th>
+                  <th className="text-left p-2">End (YYYY-MM)</th>
+                  <th className="p-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {refinementInitiatives.map((i) => (
+                  <RefineRow key={i.id} init={i} onSave={handleRefineDate} />
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function RefineRow({
+  init,
+  onSave,
+}: {
+  init: RefinementInit;
+  onSave: (id: string, start: string, end: string) => void;
+}) {
+  const [start, setStart] = useState(init.plannedStartMonth || "");
+  const [end, setEnd] = useState(init.plannedEndMonth || "");
+
+  return (
+    <tr className="border-b">
+      <td className="p-2 font-medium">{init.name}</td>
+      <td className="p-2 text-xs">{init.workstream.name}</td>
+      <td className="p-2"><Input value={start} onChange={(e) => setStart(e.target.value)} className="w-28" placeholder="YYYY-MM" /></td>
+      <td className="p-2"><Input value={end} onChange={(e) => setEnd(e.target.value)} className="w-28" placeholder="YYYY-MM" /></td>
+      <td className="p-2"><Button size="sm" onClick={() => onSave(init.id, start, end)}>Save</Button></td>
+    </tr>
+  );
+}

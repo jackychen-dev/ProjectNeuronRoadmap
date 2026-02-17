@@ -1,0 +1,25 @@
+import { NextResponse } from "next/server";
+import { encode } from "next-auth/jwt";
+
+export async function GET() {
+  const token = await encode({
+    token: {
+      name: "Admin User",
+      email: "admin@neuron.dev",
+      role: "ADMIN",
+      id: "dev-admin",
+      sub: "dev-admin",
+    },
+    secret: process.env.NEXTAUTH_SECRET!,
+  });
+
+  const response = NextResponse.redirect(new URL("/dashboard", process.env.NEXTAUTH_URL || "http://localhost:3000"));
+
+  response.cookies.set("next-auth.session-token", token, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+  });
+
+  return response;
+}
