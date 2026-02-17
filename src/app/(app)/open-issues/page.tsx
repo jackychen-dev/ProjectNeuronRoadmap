@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { OpenIssuesView } from "./open-issues-view";
 
+export const dynamic = "force-dynamic";
+
 export default async function OpenIssuesPage() {
   const workstreams = await prisma.workstream.findMany({
     orderBy: { sortOrder: "asc" },

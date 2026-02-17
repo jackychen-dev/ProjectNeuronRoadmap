@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { encode } from "next-auth/jwt";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const token = await encode({
     token: {

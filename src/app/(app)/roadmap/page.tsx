@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { GanttRoadmap } from "./gantt-roadmap";
 
+export const dynamic = "force-dynamic";
+
 export default async function RoadmapPage() {
   const [workstreams, people] = await Promise.all([
     prisma.workstream.findMany({

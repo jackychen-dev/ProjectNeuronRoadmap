@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { AdminView } from "./admin-view";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminPage() {
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "desc" },

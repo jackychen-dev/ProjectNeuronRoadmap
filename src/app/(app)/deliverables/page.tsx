@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { DeliverablesTable } from "./deliverables-table";
 
+export const dynamic = "force-dynamic";
+
 export default async function DeliverablesPage() {
   const initiatives = await prisma.initiative.findMany({
     where: { archivedAt: null },

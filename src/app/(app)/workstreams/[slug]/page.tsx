@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import WorkstreamView from "./workstream-view";
 
+export const dynamic = "force-dynamic";
+
 export default async function WorkstreamDetailPage({
   params,
 }: {
