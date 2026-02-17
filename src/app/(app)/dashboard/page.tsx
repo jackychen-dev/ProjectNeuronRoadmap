@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import OverallBurndownChart from "./overall-burndown-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  const [program, initiatives, milestones, partners, openIssues] = await Promise.all([
+  const [program, initiatives, milestones, partners, openIssues, burnPrograms, burnWorkstreams, burnSnapshots] = await Promise.all([
     prisma.program.findFirst({
       include: { workstreams: { orderBy: { sortOrder: "asc" } } },
     }),
@@ -33,6 +34,24 @@ export default async function DashboardPage() {
     prisma.openIssue.findMany({
       where: { resolvedAt: null },
       select: { id: true, severity: true, workstreamId: true, title: true },
+    }),
+    prisma.program.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true, fyStartYear: true, fyEndYear: true, startDate: true, targetDate: true },
+    }),
+    prisma.workstream.findMany({
+      orderBy: { sortOrder: "asc" },
+      select: {
+        id: true, targetCompletionDate: true,
+        initiatives: {
+          where: { archivedAt: null },
+          select: { subTasks: { select: { points: true, completionPercent: true } } },
+        },
+      },
+    }),
+    prisma.burnSnapshot.findMany({
+      orderBy: [{ programId: "asc" }, { date: "asc" }],
+      select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true },
     }),
   ]);
 
@@ -280,6 +299,13 @@ export default async function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Overall Burndown Chart ── */}
+      <OverallBurndownChart
+        programs={JSON.parse(JSON.stringify(burnPrograms))}
+        workstreams={JSON.parse(JSON.stringify(burnWorkstreams))}
+        snapshots={JSON.parse(JSON.stringify(burnSnapshots))}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming Milestones */}

@@ -7,7 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { updateInitiativeField } from "@/lib/actions/initiatives";
-import { createSubTask, updateSubTaskCompletion, updateSubTask, updateSubTaskEstimation, deleteSubTask, toggleSubTaskAddedScope } from "@/lib/actions/subtasks";
+import { createSubTask, updateSubTaskCompletion, updateSubTask, updateSubTaskEstimation, deleteSubTask, toggleSubTaskAddedScope, updateSubTaskAssignee } from "@/lib/actions/subtasks";
+import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
+import { getCurrentPeriod, getMonthlyPeriods } from "@/lib/burn-periods";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTrackedSave } from "@/hooks/use-autosave";
@@ -35,6 +37,7 @@ interface SubTask {
   unknowns: string | null;
   integration: string | null;
   isAddedScope: boolean;
+  assigneeId: string | null;
 }
 
 interface Initiative {
@@ -46,6 +49,7 @@ interface Initiative {
   plannedEndMonth: string | null;
   status: string;
   ownerInitials: string | null;
+  ownerId: string | null;
   totalPoints: number;
   needsRefinement: boolean;
   sortOrder: number;
@@ -77,6 +81,7 @@ interface Workstream {
   targetCompletionDate: string | null;
   status: string;
   color: string | null;
+  programId: string;
   initiatives: Initiative[];
   partnerLinks: { partner: { id: string; name: string } }[];
 }
@@ -152,14 +157,26 @@ function computeBurndown(init: Initiative): number {
 
 /* ─── Workstream View Component ───────────────────────── */
 
+interface BurnSnapshotRef {
+  id: string;
+  date: string;
+  totalPoints: number;
+  completedPoints: number;
+  workstreamData?: Record<string, { name: string; totalPoints: number; completedPoints: number }> | null;
+}
+
 export default function WorkstreamView({
   workstream: ws,
   people,
   openIssues = [],
+  users,
+  burnSnapshots = [],
 }: {
   workstream: Workstream;
   people: Person[];
   openIssues?: OpenIssueSummary[];
+  users?: { id: string; name: string; email: string }[];
+  burnSnapshots?: BurnSnapshotRef[];
 }) {
   const [expandedInit, setExpandedInit] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -224,8 +241,36 @@ export default function WorkstreamView({
     {} as Record<string, number>
   );
 
+  const currentPeriod = useMemo(() => getCurrentPeriod(), []);
+  const [periodSaved, setPeriodSaved] = useState(false);
+  const [selectedPeriodKey, setSelectedPeriodKey] = useState(currentPeriod.dateKey);
+
+  // Generate monthly periods from Jan 2026 to current + 3 months
+  const monthlyPeriods = useMemo(() => {
+    const endYear = currentPeriod.month + 3 > 12 ? currentPeriod.year + 1 : currentPeriod.year;
+    const endMonth = (currentPeriod.month + 3 - 1) % 12 + 1;
+    return getMonthlyPeriods(2026, 1, endYear, endMonth);
+  }, [currentPeriod]);
+
+  // Map which periods have saved snapshots (check workstreamData for this ws)
+  const savedPeriods = useMemo(() => {
+    const set = new Set<string>();
+    for (const snap of burnSnapshots) {
+      set.add(snap.date);
+    }
+    return set;
+  }, [burnSnapshots]);
+
   function refresh() {
     startTransition(() => { router.refresh(); });
+  }
+
+  function handleSaveProgress() {
+    startTransition(async () => {
+      await trackedSave(() => saveMonthlySnapshot(ws.programId));
+      setPeriodSaved(true);
+      refresh();
+    });
   }
 
   return (
@@ -280,6 +325,107 @@ export default function WorkstreamView({
           </Card>
         ))}
       </div>
+
+      {/* ── Monthly Save Progress ──────────────────── */}
+      <Card className="border-blue-200 bg-blue-50/30">
+        <CardContent className="pt-5 pb-4 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-semibold text-sm">Save Progress — Monthly Snapshots</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Select a month to view status. You can only save to the <strong>current month</strong>.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              {(periodSaved || savedPeriods.has(currentPeriod.dateKey)) && (
+                <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700">Month Saved</Badge>
+              )}
+              <Button
+                onClick={handleSaveProgress}
+                disabled={isPending}
+                size="sm"
+                className="whitespace-nowrap"
+              >
+                {(periodSaved || savedPeriods.has(currentPeriod.dateKey)) ? "Update This Month" : "Save Progress for This Month"}
+              </Button>
+            </div>
+          </div>
+          {/* ── Month Dropdown ── */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-xs font-semibold text-muted-foreground">Month:</label>
+            <Select
+              className="h-8 text-sm w-64"
+              value={selectedPeriodKey}
+              onChange={(e) => setSelectedPeriodKey(e.target.value)}
+            >
+              {monthlyPeriods.map((p) => {
+                const isCurr = p.dateKey === currentPeriod.dateKey;
+                const isSaved = savedPeriods.has(p.dateKey);
+                return (
+                  <option key={p.dateKey} value={p.dateKey}>
+                    {p.label}{isCurr ? " (current)" : ""}{isSaved ? " ✓" : ""}
+                  </option>
+                );
+              })}
+            </Select>
+            {selectedPeriodKey !== currentPeriod.dateKey && (
+              <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300">
+                Past/future month — read-only
+              </Badge>
+            )}
+            {selectedPeriodKey === currentPeriod.dateKey && (
+              <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-300">
+                Current month — saveable
+              </Badge>
+            )}
+          </div>
+          {/* ── Period snapshot details ── */}
+          {selectedPeriodKey && (() => {
+            const snap = burnSnapshots.find(s => s.date === selectedPeriodKey);
+            if (!snap) {
+              return (
+                <div className="text-xs text-muted-foreground bg-white/60 rounded-md p-2 border">
+                  No snapshot saved for this period yet.
+                  {selectedPeriodKey === currentPeriod.dateKey && " Click the button above to save."}
+                </div>
+              );
+            }
+            const wsEntry = snap.workstreamData?.[ws.id];
+            const pct = snap.totalPoints > 0 ? Math.round((snap.completedPoints / snap.totalPoints) * 100) : 0;
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-white/60 rounded-md p-3 border text-xs">
+                <div>
+                  <span className="text-muted-foreground">Program Total</span>
+                  <p className="font-semibold text-sm">{snap.totalPoints} pts</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Program Completed</span>
+                  <p className="font-semibold text-sm text-green-600">{snap.completedPoints} pts ({pct}%)</p>
+                </div>
+                {wsEntry && (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">This Workstream Total</span>
+                      <p className="font-semibold text-sm">{wsEntry.totalPoints} pts</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">This Workstream Done</span>
+                      <p className="font-semibold text-sm text-green-600">
+                        {wsEntry.completedPoints} pts ({wsEntry.totalPoints > 0 ? Math.round((wsEntry.completedPoints / wsEntry.totalPoints) * 100) : 0}%)
+                      </p>
+                    </div>
+                  </>
+                )}
+                {!wsEntry && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground italic">No per-workstream data for this snapshot (save again to capture)</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
 
       {/* ── Partners ──────────────────────────────────── */}
       {ws.partnerLinks.length > 0 && (
@@ -404,6 +550,27 @@ export default function WorkstreamView({
                           <option key={p.id} value={p.initials || p.name}>
                             {p.initials ? `${p.initials} — ${p.name}` : p.name}
                           </option>
+                        ))}
+                      </Select>
+                    </div>
+
+                    {/* Assigned User */}
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground block mb-1">Assigned User</label>
+                      <Select
+                        className="h-8 text-xs"
+                        defaultValue={init.ownerId || "__none"}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          startTransition(async () => {
+                            await trackedSave(() => updateInitiativeField(init.id, "ownerId", val === "__none" ? null : val));
+                            refresh();
+                          });
+                        }}
+                      >
+                        <option value="__none">Unassigned</option>
+                        {(users || []).map((u) => (
+                          <option key={u.id} value={u.id}>{u.name || u.email}</option>
                         ))}
                       </Select>
                     </div>
@@ -559,8 +726,9 @@ export default function WorkstreamView({
 
                     {/* Sub-task column headers */}
                     {init.subTasks.length > 0 && (
-                      <div className="grid grid-cols-[1fr_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
+                      <div className="grid grid-cols-[1fr_70px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
                         <span>Name</span>
+                        <span>Assignee</span>
                         <span>Days</span>
                         <span>Unknowns</span>
                         <span>Integration</span>
@@ -574,7 +742,7 @@ export default function WorkstreamView({
                     )}
 
                     {init.subTasks.map((st) => (
-                      <SubTaskRow key={st.id} subTask={st} onUpdate={refresh} trackedSave={trackedSave} />
+                      <SubTaskRow key={st.id} subTask={st} people={people} onUpdate={refresh} trackedSave={trackedSave} />
                     ))}
 
                     {/* Sub-task points summary bar */}
@@ -624,7 +792,7 @@ export default function WorkstreamView({
 
 /* ─── Sub-Task Row ─────────────────────────────────────── */
 
-function SubTaskRow({ subTask: st, onUpdate, trackedSave }: { subTask: SubTask; onUpdate: () => void; trackedSave: <T>(action: () => Promise<T>) => Promise<T | undefined> }) {
+function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: SubTask; people: Person[]; onUpdate: () => void; trackedSave: <T>(action: () => Promise<T>) => Promise<T | undefined> }) {
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(st.name);
@@ -682,7 +850,7 @@ function SubTaskRow({ subTask: st, onUpdate, trackedSave }: { subTask: SubTask; 
       st.isAddedScope ? "border-purple-300 bg-purple-50/50 dark:bg-purple-950/10" :
       "hover:bg-accent/20"
     }`}>
-      <div className="grid grid-cols-[1fr_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 items-center">
+      <div className="grid grid-cols-[1fr_70px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 items-center">
         {/* Name + Added Scope badge */}
         <div className="min-w-0">
           {editing ? (
@@ -744,6 +912,24 @@ function SubTaskRow({ subTask: st, onUpdate, trackedSave }: { subTask: SubTask; 
             </div>
           )}
         </div>
+
+        {/* Assignee dropdown */}
+        <select
+          className="h-5 text-[9px] border rounded px-0.5 bg-background truncate"
+          value={st.assigneeId || "__none"}
+          onChange={(e) => {
+            const val = e.target.value;
+            startTransition(async () => {
+              await trackedSave(() => updateSubTaskAssignee(st.id, val === "__none" ? null : val));
+              onUpdate();
+            });
+          }}
+        >
+          <option value="__none">—</option>
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>{p.initials || p.name}</option>
+          ))}
+        </select>
 
         {/* Estimated Days */}
         <Input

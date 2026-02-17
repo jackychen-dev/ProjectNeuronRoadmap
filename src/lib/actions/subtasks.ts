@@ -88,6 +88,16 @@ export async function toggleSubTaskAddedScope(id: string, isAddedScope: boolean)
   return subTask;
 }
 
+export async function updateSubTaskAssignee(id: string, assigneeId: string | null) {
+  const subTask = await prisma.subTask.update({
+    where: { id },
+    data: { assigneeId },
+  });
+  revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
+  return subTask;
+}
+
 export async function deleteSubTask(id: string) {
   await prisma.subTask.delete({ where: { id } });
   revalidatePath("/workstreams");

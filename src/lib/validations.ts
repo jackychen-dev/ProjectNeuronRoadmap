@@ -124,3 +124,24 @@ export const userSchema = z.object({
   password: z.string().min(6, "Min 6 characters").optional(),
   role: z.enum(["ADMIN", "MEMBER"]).optional(),
 });
+
+// ─── Burn Snapshot ─────────────────────────────
+export const burnSnapshotSchema = z.object({
+  programId: z.string().optional(),
+  featureId: z.string().optional(),
+  goalId: z.string().optional(),
+  date: z.string(),
+  remainingWork: z.coerce.number().min(0),
+  totalWork: z.coerce.number().min(0).optional().nullable(),
+});
+
+// ─── Documentation ─────────────────────────────
+export const documentationSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  body: z.string().optional().default(""),
+  entityType: z.enum(["PROGRAM", "WORKSTREAM", "INITIATIVE"]),
+  programId: z.string().optional().nullable(),
+  workstreamId: z.string().optional().nullable(),
+  initiativeId: z.string().optional().nullable(),
+  authorId: z.string().optional().nullable(),
+});

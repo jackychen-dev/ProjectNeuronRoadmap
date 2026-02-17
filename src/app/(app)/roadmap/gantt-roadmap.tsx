@@ -9,6 +9,8 @@ import { Select } from "@/components/ui/select";
 import { updateInitiativeField } from "@/lib/actions/initiatives";
 import { createInitiative } from "@/lib/actions/initiatives";
 import { createWorkstream, deleteWorkstream } from "@/lib/actions/workstreams";
+import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
+import { getCurrentPeriod } from "@/lib/burn-periods";
 import { useTrackedSave } from "@/hooks/use-autosave";
 
 // ── Types ────────────────────────────────────────────
@@ -94,7 +96,18 @@ interface Person {
   team?: string | null;
 }
 
-export function GanttRoadmap({ workstreams, people = [] }: { workstreams: Workstream[]; people?: Person[] }) {
+interface ProgramStat {
+  id: string;
+  name: string;
+  status: string;
+  totalPts: number;
+  completedPts: number;
+  currentPct: number;
+  savedPct: number;
+  lastSnapshotDate: string | null;
+}
+
+export function GanttRoadmap({ workstreams, people = [], programs = [] }: { workstreams: Workstream[]; people?: Person[]; programs?: ProgramStat[] }) {
   const months = useMemo(() => buildMonths(), []);
   const [selectedInit, setSelectedInit] = useState<Initiative | null>(null);
   const [wsFilter, setWsFilter] = useState<string>("all");
@@ -114,6 +127,8 @@ export function GanttRoadmap({ workstreams, people = [] }: { workstreams: Workst
   // Add initiative state
   const [addingInitWs, setAddingInitWs] = useState<string | null>(null);
   const [newInit, setNewInit] = useState({ name: "", category: "TOOLING", start: "", end: "" });
+
+  
 
   // People lookup: initials → full name
   const peopleByInitials = useMemo(() => {
@@ -204,6 +219,17 @@ export function GanttRoadmap({ workstreams, people = [] }: { workstreams: Workst
     });
   }
 
+  
+
+  const currentPeriod = useMemo(() => getCurrentPeriod(), []);
+
+  function handleSaveSnapshot(programId: string) {
+    startTransition(async () => {
+      await trackedSave(() => saveMonthlySnapshot(programId));
+      refresh();
+    });
+  }
+
   // Today marker
   const now = new Date();
   const todayMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -211,6 +237,51 @@ export function GanttRoadmap({ workstreams, people = [] }: { workstreams: Workst
 
   return (
     <div className="space-y-4">
+      {/* ── Initiatives (Programs) with Progress Bars ── */}
+      {programs.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wide">Initiatives</h2>
+          </div>
+          {programs.map((p) => (
+            <div key={p.id} className="border rounded-lg p-3 bg-card space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-sm">{p.name}</span>
+                  <Badge variant="secondary" className="text-[10px]">{p.status.replace(/_/g, " ")}</Badge>
+                  <span className="text-[10px] text-muted-foreground">{p.totalPts} pts</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-muted-foreground">{currentPeriod.label}</span>
+                  <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => handleSaveSnapshot(p.id)} disabled={isPending}>
+                    Save Month
+                  </Button>
+                </div>
+              </div>
+              {/* Dual progress bars */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground w-20 shrink-0">Last Saved</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div className="h-3 rounded-full bg-gray-400 transition-all" style={{ width: `${Math.max(p.savedPct, 0.5)}%` }} />
+                  </div>
+                  <span className="text-[10px] font-mono w-10 text-right">{p.savedPct}%</span>
+                  {p.lastSnapshotDate && <span className="text-[9px] text-muted-foreground">({p.lastSnapshotDate})</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground w-20 shrink-0">Current</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div className="h-3 rounded-full bg-gradient-to-r from-blue-500 to-green-500 transition-all" style={{ width: `${Math.max(p.currentPct, 0.5)}%` }} />
+                  </div>
+                  <span className="text-[10px] font-mono w-10 text-right">{p.currentPct}%</span>
+                </div>
+              </div>
+            </div>
+          ))}
+          
+        </div>
+      )}
+
       {/* Filters + Actions */}
       <div className="flex flex-wrap gap-3 items-center justify-between">
         <div className="flex flex-wrap gap-3 items-center">

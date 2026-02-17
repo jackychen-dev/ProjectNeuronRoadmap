@@ -74,6 +74,7 @@ export async function updateInitiativeField(
 ) {
   const allowedFields = [
     "ownerInitials",
+    "ownerId",
     "plannedStartMonth",
     "plannedEndMonth",
     "status",

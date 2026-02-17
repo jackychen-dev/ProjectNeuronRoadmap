@@ -1,51 +1,40 @@
-import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import DocsView from "./docs-view";
 
-const docs = [
-  {
-    href: "/docs/agile-estimation",
-    title: "Agile Estimation & 3-Point Anchor Guide",
-    description:
-      "Learn how to calibrate story-point estimation using a 3-point anchor, compare good vs bad anchors, and size work consistently across sprints.",
-    tags: ["Estimation", "Story Points", "Process"],
-  },
-];
+export const dynamic = "force-dynamic";
 
-export default function DocsIndexPage() {
+export default async function DocsPage() {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as any)?.id || null;
+
+  const [docs, programs, workstreams, initiatives] = await Promise.all([
+    prisma.documentation.findMany({
+      orderBy: { updatedAt: "desc" },
+      include: {
+        author: { select: { id: true, name: true, email: true } },
+        program: { select: { id: true, name: true } },
+        workstream: { select: { id: true, name: true } },
+        initiative: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.program.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.workstream.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.initiative.findMany({
+      where: { archivedAt: null },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Documentation</h1>
-        <p className="text-muted-foreground">
-          Guides, references, and process documentation for the Project Neuron team.
-        </p>
-      </header>
-
-      <div className="grid gap-4">
-        {docs.map((doc) => (
-          <Link key={doc.href} href={doc.href} className="block group">
-            <Card className="transition-shadow group-hover:shadow-md">
-              <CardHeader>
-                <CardTitle className="text-lg group-hover:text-primary transition-colors">
-                  {doc.title}
-                </CardTitle>
-                <CardDescription>{doc.description}</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex gap-2 flex-wrap">
-                  {doc.tags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-    </div>
+    <DocsView
+      docs={JSON.parse(JSON.stringify(docs))}
+      programs={JSON.parse(JSON.stringify(programs))}
+      workstreams={JSON.parse(JSON.stringify(workstreams))}
+      initiatives={JSON.parse(JSON.stringify(initiatives))}
+      userId={userId}
+    />
   );
 }
-

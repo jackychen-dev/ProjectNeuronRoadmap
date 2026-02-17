@@ -121,6 +121,68 @@ export async function deleteIssueComment(id: string) {
   revalidatePath("/open-issues");
 }
 
+/* ─── Notification tracking ─────────────────── */
+
+export async function markIssueSeen(userId: string, issueId: string) {
+  await prisma.userIssueSeen.upsert({
+    where: { userId_issueId: { userId, issueId } },
+    create: { userId, issueId, lastSeenAt: new Date() },
+    update: { lastSeenAt: new Date() },
+  });
+}
+
+export async function getUnseenReplyCount(userId: string) {
+  const seen = await prisma.userIssueSeen.findMany({
+    where: { userId },
+    select: { issueId: true, lastSeenAt: true },
+  });
+  const seenMap = new Map(seen.map((s) => [s.issueId, s.lastSeenAt]));
+
+  const issues = await prisma.openIssue.findMany({
+    where: { resolvedAt: null },
+    select: {
+      id: true,
+      comments: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
+    },
+  });
+
+  let count = 0;
+  for (const issue of issues) {
+    if (issue.comments.length === 0) continue;
+    const lastComment = issue.comments[0].createdAt;
+    const lastSeen = seenMap.get(issue.id);
+    if (!lastSeen || lastComment > lastSeen) {
+      count++;
+    }
+  }
+  return count;
+}
+
+export async function getIssuesWithNewReplies(userId: string) {
+  const seen = await prisma.userIssueSeen.findMany({
+    where: { userId },
+    select: { issueId: true, lastSeenAt: true },
+  });
+  const seenMap = new Map(seen.map((s) => [s.issueId, s.lastSeenAt]));
+
+  const issues = await prisma.openIssue.findMany({
+    where: { resolvedAt: null },
+    include: {
+      workstream: { select: { id: true, name: true } },
+      subTask: { select: { id: true, name: true, initiative: { select: { id: true, name: true, ownerId: true } } } },
+      comments: { orderBy: { createdAt: "desc" }, take: 3 },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return issues.filter((issue) => {
+    if (issue.comments.length === 0) return false;
+    const lastComment = issue.comments[0].createdAt;
+    const lastSeen = seenMap.get(issue.id);
+    return !lastSeen || lastComment > lastSeen;
+  });
+}
+
 /** Count open issues per workstream */
 export async function countOpenIssuesByWorkstream() {
   const issues = await prisma.openIssue.groupBy({

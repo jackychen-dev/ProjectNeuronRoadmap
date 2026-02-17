@@ -28,6 +28,11 @@ model User {
   createdPartners    Partner[]      @relation("PartnerCreatedBy")
   personProfile      Person?
   assignments        Assignment[]
+
+  // Owner relations (subcomponent ownership)
+  ownedInitiatives   Initiative[]   @relation("InitiativeOwner")
+  authoredDocs       Documentation[]
+  issueSeen          UserIssueSeen[]
 }
 
 model Account {
@@ -68,21 +73,26 @@ model VerificationToken {
 // ─── PROGRAM ───────────────────────────────────────────
 
 model Program {
-  id              String   @id @default(cuid())
-  name            String   // "Project Neuron"
-  mission         String?  // rich text
-  vision          String?  // rich text
-  successTenets   String?  // rich text
-  objectives      String?  // rich text
-  fyStartYear     Int      @default(26)
-  fyEndYear       Int      @default(28)
+  id              String    @id @default(cuid())
+  name            String    // "Project Neuron" — this is an "Initiative" in the UI
+  mission         String?   // rich text
+  vision          String?   // rich text
+  successTenets   String?   // rich text
+  objectives      String?   // rich text
+  fyStartYear     Int       @default(26)
+  fyEndYear       Int       @default(28)
+  status          String    @default("IN_PROGRESS") // NOT_STARTED | IN_PROGRESS | DONE
+  startDate       DateTime?
+  targetDate      DateTime?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   createdById     String?
 
-  createdBy       User?        @relation("ProgramCreatedBy", fields: [createdById], references: [id])
+  createdBy       User?           @relation("ProgramCreatedBy", fields: [createdById], references: [id])
   workstreams     Workstream[]
+  burnSnapshots   BurnSnapshot[]
+  docs            Documentation[] @relation("ProgramDocs")
 }
 
 // ─── WORKSTREAM ────────────────────────────────────────
@@ -107,6 +117,7 @@ model Workstream {
   initiatives          Initiative[]
   partnerLinks         PartnerWorkstream[]
   openIssues           OpenIssue[]
+  docs                 Documentation[] @relation("WorkstreamDocs")
 }
 
 // ─── INITIATIVE ────────────────────────────────────────
@@ -124,6 +135,7 @@ model Initiative {
   // NOT_STARTED | IN_PROGRESS | BLOCKED | DONE
   tags              String?   // comma-separated
   ownerInitials     String?   // e.g. "DQ", "JC", "AB" from PDF
+  ownerId           String?   // FK to User — subcomponent owner
   needsRefinement   Boolean   @default(false)
   sortOrder         Int       @default(0)
 
@@ -134,6 +146,7 @@ model Initiative {
 
   workstream        Workstream @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
   createdBy         User?      @relation("InitiativeCreatedBy", fields: [createdById], references: [id])
+  owner             User?      @relation("InitiativeOwner", fields: [ownerId], references: [id])
 
   totalPoints       Int       @default(0) // total story points for this initiative
 
@@ -142,6 +155,7 @@ model Initiative {
   artifacts         Artifact[]
   assignments       Assignment[]
   subTasks          SubTask[]
+  docs              Documentation[] @relation("InitiativeDocs")
 
   // Dependencies (many-to-many self)
   dependsOn         InitiativeDependency[] @relation("DependsOn")
@@ -159,6 +173,7 @@ model SubTask {
   completionPercent Int       @default(0) // 0–100
   status            String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | DONE
   sortOrder         Int       @default(0)
+  assigneeId        String?   // FK to Person — who is working on this subtask
 
   // Story-point estimation inputs
   estimatedDays     Float?    // estimated effort in days
@@ -170,6 +185,7 @@ model SubTask {
   updatedAt         DateTime  @updatedAt
 
   initiative        Initiative @relation(fields: [initiativeId], references: [id], onDelete: Cascade)
+  assignee          Person?    @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
   openIssues        OpenIssue[]
 }
 
@@ -190,6 +206,7 @@ model OpenIssue {
   workstream      Workstream @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
   subTask         SubTask?   @relation(fields: [subTaskId], references: [id], onDelete: SetNull)
   comments        IssueComment[]
+  userSeen        UserIssueSeen[]
 }
 
 // ─── ISSUE COMMENT ─────────────────────────────────
@@ -292,6 +309,7 @@ model Person {
 
   user            User?     @relation(fields: [userId], references: [id])
   assignments     Assignment[]
+  assignedSubTasks SubTask[]
 }
 
 // ─── ASSIGNMENT ────────────────────────────────────────
@@ -330,4 +348,62 @@ model Artifact {
 
   initiative    Initiative? @relation(fields: [initiativeId], references: [id], onDelete: Cascade)
   partner       Partner?    @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+}
+
+// ─── BURN SNAPSHOT ──────────────────────────────────────
+// Date-stamped progress capture per Initiative (Program).
+// The burndown chart is derived from these snapshots — no straight-line interpolation.
+
+model BurnSnapshot {
+  id              String   @id @default(cuid())
+  programId       String
+  date            String   // YYYY-MM — monthly period key
+  totalPoints     Int
+  completedPoints Int
+  percentComplete Float
+  workstreamData  Json?    // { [workstreamId]: { name, totalPoints, completedPoints } }
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  program         Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, date])
+}
+
+// ─── DOCUMENTATION ──────────────────────────────────────
+// Attachable to any entity: PROGRAM (Initiative), WORKSTREAM, INITIATIVE (Subcomponent)
+
+model Documentation {
+  id            String   @id @default(cuid())
+  title         String
+  body          String   @default("")
+  entityType    String   // PROGRAM | WORKSTREAM | INITIATIVE
+  programId     String?
+  workstreamId  String?
+  initiativeId  String?
+  authorId      String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  author        User?        @relation(fields: [authorId], references: [id])
+  program       Program?     @relation("ProgramDocs", fields: [programId], references: [id], onDelete: Cascade)
+  workstream    Workstream?  @relation("WorkstreamDocs", fields: [workstreamId], references: [id], onDelete: Cascade)
+  initiative    Initiative?  @relation("InitiativeDocs", fields: [initiativeId], references: [id], onDelete: Cascade)
+}
+
+// ─── USER ISSUE SEEN ────────────────────────────────────
+// Tracks when a user last viewed an issue for notification badges.
+
+model UserIssueSeen {
+  id         String   @id @default(cuid())
+  userId     String
+  issueId    String
+  lastSeenAt DateTime @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issue      OpenIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, issueId])
 }

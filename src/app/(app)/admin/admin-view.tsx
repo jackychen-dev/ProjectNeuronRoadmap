@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createUser, updateUserRole, deleteUser } from "@/lib/actions/admin";
+import { createUser, updateUserRole, deleteUser, linkPersonToUser } from "@/lib/actions/admin";
 import { updateInitiativeDates } from "@/lib/actions/initiatives";
 
 interface User {
@@ -14,6 +14,13 @@ interface User {
   name?: string | null;
   role: string;
   createdAt: string;
+}
+
+interface PersonRef {
+  id: string;
+  name: string;
+  initials: string | null;
+  userId: string | null;
 }
 
 interface RefinementInit {
@@ -26,12 +33,15 @@ interface RefinementInit {
 
 export function AdminView({
   users: initialUsers,
+  people: initialPeople,
   refinementInitiatives,
 }: {
   users: User[];
+  people: PersonRef[];
   refinementInitiatives: RefinementInit[];
 }) {
   const [users, setUsers] = useState(initialUsers);
+  const [people, setPeople] = useState(initialPeople);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -55,6 +65,18 @@ export function AdminView({
     if (!confirm(`Are you sure you want to delete ${email}?`)) return;
     await deleteUser(id);
     setUsers((prev) => prev.filter((u) => u.id !== id));
+  };
+
+  const handleLinkPerson = async (userId: string, personId: string | null) => {
+    await linkPersonToUser(userId, personId);
+    // Update local state: unlink old person from this user, link new one
+    setPeople((prev) =>
+      prev.map((p) => {
+        if (p.userId === userId) return { ...p, userId: null };
+        if (p.id === personId) return { ...p, userId };
+        return p;
+      })
+    );
   };
 
   const handleRefineDate = async (id: string, start: string, end: string) => {
@@ -107,39 +129,63 @@ export function AdminView({
               <tr className="border-b">
                 <th className="text-left p-2">Email</th>
                 <th className="text-left p-2">Name</th>
+                <th className="text-left p-2">Linked Person</th>
                 <th className="text-left p-2">Role</th>
                 <th className="text-left p-2">Created</th>
                 <th className="text-left p-2">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-b">
-                  <td className="p-2">{u.email}</td>
-                  <td className="p-2">{u.name || "—"}</td>
-                  <td className="p-2">
-                    <select
-                      className="rounded border px-2 py-1 text-xs bg-background"
-                      value={u.role}
-                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                    >
-                      <option value="MEMBER">Member</option>
-                      <option value="ADMIN">Admin</option>
-                    </select>
-                  </td>
-                  <td className="p-2 text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
-                  <td className="p-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-[10px] h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      onClick={() => handleDeleteUser(u.id, u.email)}
-                    >
-                      Delete
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {users.map((u) => {
+                const linkedPerson = people.find((p) => p.userId === u.id);
+                return (
+                  <tr key={u.id} className="border-b">
+                    <td className="p-2">{u.email}</td>
+                    <td className="p-2">{u.name || "—"}</td>
+                    <td className="p-2">
+                      <select
+                        className="rounded border px-2 py-1 text-xs bg-background w-44"
+                        value={linkedPerson?.id || "__none"}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          handleLinkPerson(u.id, val === "__none" ? null : val);
+                        }}
+                      >
+                        <option value="__none">— Not linked —</option>
+                        {people.map((p) => {
+                          const taken = p.userId && p.userId !== u.id;
+                          return (
+                            <option key={p.id} value={p.id} disabled={!!taken}>
+                              {p.name}{p.initials ? ` (${p.initials})` : ""}{taken ? " [linked]" : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </td>
+                    <td className="p-2">
+                      <select
+                        className="rounded border px-2 py-1 text-xs bg-background"
+                        value={u.role}
+                        onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                      >
+                        <option value="MEMBER">Member</option>
+                        <option value="ADMIN">Admin</option>
+                      </select>
+                    </td>
+                    <td className="p-2 text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
+                    <td className="p-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-[10px] h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => handleDeleteUser(u.id, u.email)}
+                      >
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </CardContent>

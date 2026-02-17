@@ -35,3 +35,27 @@ export async function deleteUser(id: string) {
   await prisma.user.delete({ where: { id } });
   revalidatePath("/admin");
 }
+
+/**
+ * Link a Person to a User account.
+ * Passing personId=null unlinks.
+ */
+export async function linkPersonToUser(userId: string, personId: string | null) {
+  // First, unlink any Person currently linked to this user
+  await prisma.person.updateMany({
+    where: { userId },
+    data: { userId: null },
+  });
+
+  // If a new personId is provided, link it
+  if (personId) {
+    // Also unlink this person from any other user (1:1 relationship)
+    await prisma.person.update({
+      where: { id: personId },
+      data: { userId },
+    });
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/my-dashboard");
+}
