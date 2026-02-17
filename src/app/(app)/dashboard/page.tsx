@@ -13,8 +13,8 @@ const STATUS_COLORS: Record<string, string> = {
   DONE: "bg-green-100 text-green-700",
 };
 
-export default async function DashboardPage() {
-  const [program, initiatives, milestones, partners, openIssues, burnPrograms, burnWorkstreams, burnSnapshots] = await Promise.all([
+async function loadDashboardData() {
+  return Promise.all([
     prisma.program.findFirst({
       include: { workstreams: { orderBy: { sortOrder: "asc" } } },
     }),
@@ -54,6 +54,18 @@ export default async function DashboardPage() {
       select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true },
     }),
   ]);
+}
+
+export default async function DashboardPage() {
+  let data: Awaited<ReturnType<typeof loadDashboardData>>;
+  try {
+    data = await loadDashboardData();
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    throw new Error(`Dashboard data load failed: ${err.message}`, { cause: err });
+  }
+
+  const [program, initiatives, milestones, partners, openIssues, burnPrograms, burnWorkstreams, burnSnapshots] = data;
 
   // Fix milestones query to use program id
   const programMilestones = milestones.filter((m) => m.programId === program?.id);
@@ -72,8 +84,8 @@ export default async function DashboardPage() {
     {} as Record<string, number>,
   );
 
-  // Compute workstream-level completion based on subtask progress
-  const workstreamStats = program?.workstreams.map((ws) => {
+  // Compute workstream-level completion based on subtask progress (guard empty DB)
+  const workstreamStats = (program?.workstreams ?? []).map((ws) => {
     const wsInits = initiatives.filter((i) => i.workstreamId === ws.id);
     const done = wsInits.filter((i) => i.status === "DONE").length;
     const total = wsInits.length;
@@ -302,9 +314,9 @@ export default async function DashboardPage() {
 
       {/* ── Overall Burndown Chart ── */}
       <OverallBurndownChart
-        programs={JSON.parse(JSON.stringify(burnPrograms))}
-        workstreams={JSON.parse(JSON.stringify(burnWorkstreams))}
-        snapshots={JSON.parse(JSON.stringify(burnSnapshots))}
+        programs={JSON.parse(JSON.stringify(burnPrograms ?? []))}
+        workstreams={JSON.parse(JSON.stringify(burnWorkstreams ?? []))}
+        snapshots={JSON.parse(JSON.stringify(burnSnapshots ?? []))}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -69,6 +69,20 @@ npm run dev
 | Admin  | admin@neuron.dev   | password123  |
 | Member | member@neuron.dev  | password123  |
 
+## Deploying to Vercel
+
+1. **Environment variables** (Vercel → Project → Settings → Environment Variables):
+   - `DATABASE_URL` — PostgreSQL connection string (e.g. Vercel Postgres, Neon, or Railway).
+   - `NEXTAUTH_SECRET` — Random secret for session signing (e.g. `openssl rand -base64 32`).
+   - `NEXTAUTH_URL` — Your app URL, e.g. `https://your-project.vercel.app` (no trailing slash).
+
+2. **Database**: Run migrations against the production DB (once per deployment if schema changed):
+   ```bash
+   DATABASE_URL="your-production-url" npx prisma migrate deploy
+   ```
+
+3. If you see "Application error: a server-side exception has occurred", check **Vercel → Project → Logs** (or the deployment’s Function logs) for the real error. Missing `DATABASE_URL` or an unmigrated DB are common causes.
+
 ## How Snapshots Work
 
 Snapshots are the source of truth for the burndown chart. Each snapshot captures a point-in-time view of progress.

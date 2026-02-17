@@ -13,9 +13,10 @@ export const dynamic = "force-dynamic";
 export default async function MyDashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/auth/signin");
-  
-  const userId = (session.user as any).id as string;
-  const isAdmin = (session.user as any).role === "ADMIN";
+
+  const userId = (session.user as { id?: string; role?: string }).id;
+  const isAdmin = (session.user as { role?: string }).role === "ADMIN";
+  if (!userId) redirect("/auth/signin");
 
   // Find the Person linked to this user
   const person = await prisma.person.findUnique({ where: { userId } });

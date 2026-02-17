@@ -10,6 +10,7 @@ export const config = {
   // Protect every app page except auth, api, static, and the landing page
   matcher: [
     "/dashboard/:path*",
+    "/my-dashboard/:path*",
     "/roadmap/:path*",
     "/burndown/:path*",
     "/workstreams/:path*",
