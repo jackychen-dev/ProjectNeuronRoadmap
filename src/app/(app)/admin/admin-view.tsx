@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createUser, updateUserRole } from "@/lib/actions/admin";
+import { createUser, updateUserRole, deleteUser } from "@/lib/actions/admin";
 import { updateInitiativeDates } from "@/lib/actions/initiatives";
 
 interface User {
@@ -49,6 +49,12 @@ export function AdminView({
   const handleRoleChange = async (id: string, newRole: string) => {
     await updateUserRole(id, newRole);
     setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role: newRole } : u)));
+  };
+
+  const handleDeleteUser = async (id: string, email: string) => {
+    if (!confirm(`Are you sure you want to delete ${email}?`)) return;
+    await deleteUser(id);
+    setUsers((prev) => prev.filter((u) => u.id !== id));
   };
 
   const handleRefineDate = async (id: string, start: string, end: string) => {
@@ -103,6 +109,7 @@ export function AdminView({
                 <th className="text-left p-2">Name</th>
                 <th className="text-left p-2">Role</th>
                 <th className="text-left p-2">Created</th>
+                <th className="text-left p-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -121,6 +128,16 @@ export function AdminView({
                     </select>
                   </td>
                   <td className="p-2 text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
+                  <td className="p-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-[10px] h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleDeleteUser(u.id, u.email)}
+                    >
+                      Delete
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
