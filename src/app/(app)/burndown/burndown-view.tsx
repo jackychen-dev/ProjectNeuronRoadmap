@@ -75,19 +75,22 @@ function BurndownTooltip({ active, payload, label }: any) {
 
 /* ─── Timeline builder ────────────────────────────────── */
 
-function buildTimeline(program: ProgramRef, workstreams: Workstream[]): BurnPeriod[] {
-  // Start: FY start year (e.g. FY26 → Jan 2026) or program startDate
-  let startYear = 2000 + program.fyStartYear;
-  let startMonth = 1;
+/** Get the program start year/month */
+function getProgramStart(program: ProgramRef): { year: number; month: number } {
   if (program.startDate) {
     const d = new Date(program.startDate);
-    startYear = d.getFullYear();
-    startMonth = d.getMonth() + 1;
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
   }
+  return { year: 2000 + program.fyStartYear, month: 1 };
+}
+
+/** Build overall timeline (uses latest workstream end or program target) */
+function buildTimeline(program: ProgramRef, workstreams: Workstream[]): BurnPeriod[] {
+  const start = getProgramStart(program);
 
   // End: latest workstream targetCompletionDate, or FY end year
   let endYear = 2000 + program.fyEndYear;
-  let endMonth = 11; // November (fiscal year default)
+  let endMonth = 11;
 
   for (const ws of workstreams) {
     const parsed = parseTargetMonth(ws.targetCompletionDate);
@@ -105,7 +108,66 @@ function buildTimeline(program: ProgramRef, workstreams: Workstream[]): BurnPeri
     endMonth = d.getMonth() + 1;
   }
 
-  return getMonthlyPeriods(startYear, startMonth, endYear, endMonth);
+  return getMonthlyPeriods(start.year, start.month, endYear, endMonth);
+}
+
+/** Build timeline for a single workstream (ends at its targetCompletionDate) */
+function buildWsTimeline(program: ProgramRef, ws: Workstream): BurnPeriod[] {
+  const start = getProgramStart(program);
+
+  // End at the workstream's own target, or fall back to the latest initiative end, or FY end
+  const parsed = parseTargetMonth(ws.targetCompletionDate);
+  let endYear: number, endMonth: number;
+
+  if (parsed) {
+    endYear = parsed.year;
+    endMonth = parsed.month;
+  } else {
+    // Try to find the latest initiative plannedEndMonth in this workstream
+    let latestEnd: { year: number; month: number } | null = null;
+    for (const init of ws.initiatives) {
+      if (init.plannedEndMonth) {
+        const [y, m] = init.plannedEndMonth.split("-").map(Number);
+        if (!latestEnd || y > latestEnd.year || (y === latestEnd.year && m > latestEnd.month)) {
+          latestEnd = { year: y, month: m };
+        }
+      }
+    }
+    if (latestEnd) {
+      endYear = latestEnd.year;
+      endMonth = latestEnd.month;
+    } else {
+      endYear = 2000 + program.fyEndYear;
+      endMonth = 11;
+    }
+  }
+
+  return getMonthlyPeriods(start.year, start.month, endYear, endMonth);
+}
+
+/** Build timeline for a single initiative (ends at its plannedEndMonth) */
+function buildInitTimeline(program: ProgramRef, ws: Workstream, init: Initiative): BurnPeriod[] {
+  const start = getProgramStart(program);
+
+  let endYear: number, endMonth: number;
+
+  if (init.plannedEndMonth) {
+    const [y, m] = init.plannedEndMonth.split("-").map(Number);
+    endYear = y;
+    endMonth = m;
+  } else {
+    // Fall back to workstream target
+    const parsed = parseTargetMonth(ws.targetCompletionDate);
+    if (parsed) {
+      endYear = parsed.year;
+      endMonth = parsed.month;
+    } else {
+      endYear = 2000 + program.fyEndYear;
+      endMonth = 11;
+    }
+  }
+
+  return getMonthlyPeriods(start.year, start.month, endYear, endMonth);
 }
 
 /* ─── Chart data builder ──────────────────────────────── */
@@ -252,11 +314,13 @@ export default function BurndownView({
     return buildChartData(allPeriods, byDate, programTotalPts, programTotalPts - programCompletedPts, programTotalPts, currentPeriod);
   }, [snapshots, selectedProgram, allPeriods, currentPeriod, programTotalPts, programCompletedPts]);
 
-  /* ── Per-workstream chart data ── */
+  /* ── Per-workstream chart data (each uses its own timeline) ── */
   const wsChartDataMap = useMemo(() => {
-    const map = new Map<string, { name: string; color: string; data: ChartPoint[] }>();
+    const map = new Map<string, { name: string; color: string; data: ChartPoint[]; periods: BurnPeriod[] }>();
+    if (!activeProgram) return map;
     for (const ws of workstreams) {
       const live = wsLiveTotals.get(ws.id)!;
+      const wsPeriods = buildWsTimeline(activeProgram, ws);
       const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
       for (const snap of snapshots) {
         if (snap.workstreamData) {
@@ -264,20 +328,21 @@ export default function BurndownView({
           if (entry) byDate.set(snap.date, { totalPoints: entry.totalPoints, completedPoints: entry.completedPoints });
         }
       }
-      map.set(ws.id, { name: ws.name, color: live.color, data: buildChartData(allPeriods, byDate, live.totalPoints, live.totalPoints - live.completedPoints, live.totalPoints, currentPeriod) });
+      map.set(ws.id, { name: ws.name, color: live.color, periods: wsPeriods, data: buildChartData(wsPeriods, byDate, live.totalPoints, live.totalPoints - live.completedPoints, live.totalPoints, currentPeriod) });
     }
     return map;
-  }, [workstreams, wsLiveTotals, snapshots, allPeriods, currentPeriod]);
+  }, [workstreams, wsLiveTotals, snapshots, activeProgram, currentPeriod]);
 
-  /* ── Per-subcomponent chart data (only used when a specific workstream is selected) ── */
+  /* ── Per-subcomponent chart data (each uses its own timeline) ── */
   const subChartDataMap = useMemo(() => {
     if (selectedWs === "all") return new Map<string, { name: string; data: ChartPoint[] }>();
     const map = new Map<string, { name: string; data: ChartPoint[] }>();
     const ws = workstreams.find(w => w.id === selectedWs);
-    if (!ws) return map;
+    if (!ws || !activeProgram) return map;
 
     for (const init of ws.initiatives) {
       const live = initLiveTotals.get(init.id)!;
+      const initPeriods = buildInitTimeline(activeProgram, ws, init);
       const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
       for (const snap of snapshots) {
         if (snap.workstreamData) {
@@ -286,10 +351,10 @@ export default function BurndownView({
           if (sub) byDate.set(snap.date, { totalPoints: sub.totalPoints, completedPoints: sub.completedPoints });
         }
       }
-      map.set(init.id, { name: init.name, data: buildChartData(allPeriods, byDate, live.totalPoints, live.totalPoints - live.completedPoints, live.totalPoints, currentPeriod) });
+      map.set(init.id, { name: init.name, data: buildChartData(initPeriods, byDate, live.totalPoints, live.totalPoints - live.completedPoints, live.totalPoints, currentPeriod) });
     }
     return map;
-  }, [selectedWs, workstreams, initLiveTotals, snapshots, allPeriods, currentPeriod]);
+  }, [selectedWs, workstreams, initLiveTotals, snapshots, activeProgram, currentPeriod]);
 
   /* ── Handlers ── */
   function handlePushSnapshot() {

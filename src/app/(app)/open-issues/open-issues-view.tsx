@@ -58,6 +58,20 @@ interface OpenIssue {
   comments: IssueComment[];
 }
 
+/* ─── Helpers ────────────────────────────────────────── */
+
+/** Renders comment body with @mentions highlighted in blue */
+function renderCommentBody(body: string) {
+  const parts = body.split(/(@[A-Za-z][A-Za-z\s]*?)(?=\s@|[.,!?\s]*$|[.,!?]\s|\s)/g);
+  return parts.map((part, i) =>
+    part.startsWith("@") ? (
+      <span key={i} className="text-blue-600 dark:text-blue-400 font-semibold">{part}</span>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
+
 /* ─── Severity Config ─────────────────────────────────── */
 
 const SEVERITY_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
@@ -74,12 +88,20 @@ const SEVERITY_BADGE: Record<string, "destructive" | "secondary" | "outline"> = 
 
 /* ─── Component ───────────────────────────────────────── */
 
+interface PersonRef {
+  id: string;
+  name: string;
+  initials: string | null;
+}
+
 export function OpenIssuesView({
   workstreams,
   issues: initialIssues,
+  people = [],
 }: {
   workstreams: WorkstreamRef[];
   issues: OpenIssue[];
+  people?: PersonRef[];
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -338,7 +360,7 @@ export function OpenIssuesView({
         )}
 
         {filtered.map((issue) => (
-          <IssueCard key={issue.id} issue={issue} workstreams={workstreams} onUpdate={refresh} trackedSave={trackedSave} />
+          <IssueCard key={issue.id} issue={issue} workstreams={workstreams} people={people} onUpdate={refresh} trackedSave={trackedSave} />
         ))}
       </div>
     </div>
@@ -350,11 +372,13 @@ export function OpenIssuesView({
 function IssueCard({
   issue,
   workstreams,
+  people,
   onUpdate,
   trackedSave,
 }: {
   issue: OpenIssue;
   workstreams: WorkstreamRef[];
+  people: PersonRef[];
   onUpdate: () => void;
   trackedSave: <T>(action: () => Promise<T>) => Promise<T | undefined>;
 }) {
@@ -368,6 +392,56 @@ function IssueCard({
   // Comment state
   const [commentText, setCommentText] = useState("");
   const [commentAuthor, setCommentAuthor] = useState("");
+
+  // Mention dropdown state
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionCursorPos, setMentionCursorPos] = useState(0);
+  const commentTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const filteredPeople = useMemo(() => {
+    if (!mentionFilter) return people;
+    const lower = mentionFilter.toLowerCase();
+    return people.filter(
+      (p) =>
+        p.name.toLowerCase().includes(lower) ||
+        p.initials?.toLowerCase().includes(lower)
+    );
+  }, [people, mentionFilter]);
+
+  function handleCommentKeyUp(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const textarea = e.currentTarget;
+    const pos = textarea.selectionStart;
+    const textBefore = textarea.value.substring(0, pos);
+    const atMatch = textBefore.match(/@([A-Za-z]*)$/);
+    if (atMatch) {
+      setShowMentionDropdown(true);
+      setMentionFilter(atMatch[1]);
+      setMentionCursorPos(pos);
+    } else {
+      setShowMentionDropdown(false);
+      setMentionFilter("");
+    }
+  }
+
+  function insertMention(person: PersonRef) {
+    const textarea = commentTextareaRef.current;
+    if (!textarea) return;
+    const textBefore = commentText.substring(0, mentionCursorPos);
+    const textAfter = commentText.substring(mentionCursorPos);
+    // Find the @ position
+    const atIdx = textBefore.lastIndexOf("@");
+    const newText = textBefore.substring(0, atIdx) + `@${person.name} ` + textAfter;
+    setCommentText(newText);
+    setShowMentionDropdown(false);
+    setMentionFilter("");
+    // Focus back on textarea
+    setTimeout(() => {
+      textarea.focus();
+      const newPos = atIdx + person.name.length + 2; // @name + space
+      textarea.setSelectionRange(newPos, newPos);
+    }, 0);
+  }
 
   const cfg = SEVERITY_CONFIG[issue.severity] || SEVERITY_CONFIG.NOT_A_CONCERN;
   const isResolved = !!issue.resolvedAt;
@@ -543,7 +617,9 @@ function IssueCard({
                           &times;
                         </button>
                       </div>
-                      <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-0.5">{c.body}</p>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-0.5">
+                        {renderCommentBody(c.body)}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -563,17 +639,43 @@ function IssueCard({
                     onChange={(e) => setCommentAuthor(e.target.value)}
                   />
                 </div>
-                <textarea
-                  className="w-full rounded-md border px-2.5 py-1.5 text-sm bg-background min-h-[50px] resize-y"
-                  placeholder="Add a comment or update..."
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                      handleAddComment();
-                    }
-                  }}
-                />
+                <div className="relative">
+                  <textarea
+                    ref={commentTextareaRef}
+                    className="w-full rounded-md border px-2.5 py-1.5 text-sm bg-background min-h-[50px] resize-y"
+                    placeholder="Add a comment or update... Use @name to mention someone"
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyUp={handleCommentKeyUp}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                        handleAddComment();
+                      }
+                      if (e.key === "Escape") {
+                        setShowMentionDropdown(false);
+                      }
+                    }}
+                  />
+                  {/* Mention dropdown */}
+                  {showMentionDropdown && filteredPeople.length > 0 && (
+                    <div className="absolute left-0 bottom-full mb-1 w-64 max-h-40 overflow-y-auto bg-background border rounded-lg shadow-lg z-50">
+                      {filteredPeople.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/50 flex items-center gap-2"
+                          onMouseDown={(e) => { e.preventDefault(); insertMention(p); }}
+                        >
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold">
+                            {p.initials || p.name.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span>{p.name}</span>
+                          {p.initials && <span className="text-xs text-muted-foreground">({p.initials})</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
@@ -583,7 +685,7 @@ function IssueCard({
                   >
                     Post Comment
                   </Button>
-                  <span className="text-[10px] text-muted-foreground">Ctrl+Enter to submit</span>
+                  <span className="text-[10px] text-muted-foreground">Ctrl+Enter to submit · Type @ to mention</span>
                 </div>
               </div>
             </div>

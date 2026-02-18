@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import MySubtasksList from "./my-subtasks";
 import MyBurndownCharts from "./my-burndown-charts";
+import MyMentions from "./my-mentions";
+import { getMentionsForPerson } from "@/lib/actions/open-issues";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +88,19 @@ export default async function MyDashboardPage() {
     select: { id: true, name: true, fyStartYear: true, fyEndYear: true, startDate: true, targetDate: true },
   }) : [];
   
+  // Fetch mentions where this person was @mentioned
+  const myMentions = person
+    ? await getMentionsForPerson(person.id)
+    : [];
+
+  // Fetch all people for mention autocomplete in replies
+  const allPeople = await prisma.person.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, initials: true },
+  });
+
+  const unseenMentionCount = myMentions.filter((m) => !m.seenAt).length;
+
   // Fetch issues related to user's owned initiatives OR assigned subtasks
   const myIssues = await prisma.openIssue.findMany({
     where: {
@@ -157,7 +172,7 @@ export default async function MyDashboardPage() {
       </div>
       
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
         <Card>
           <CardContent className="pt-6 text-center">
             <p className="text-xs text-muted-foreground">My Subcomponents</p>
@@ -197,6 +212,15 @@ export default async function MyDashboardPage() {
             <p className="text-3xl font-bold text-red-500">{myIssues.length}</p>
             {newReplyCount > 0 && (
               <Badge variant="destructive" className="mt-1 text-[10px]">{newReplyCount} new replies</Badge>
+            )}
+          </CardContent>
+        </Card>
+        <Card className={unseenMentionCount > 0 ? "border-blue-300" : ""}>
+          <CardContent className="pt-6 text-center">
+            <p className="text-xs text-muted-foreground">Mentions</p>
+            <p className="text-3xl font-bold text-blue-500">{myMentions.length}</p>
+            {unseenMentionCount > 0 && (
+              <Badge variant="destructive" className="mt-1 text-[10px]">{unseenMentionCount} unread</Badge>
             )}
           </CardContent>
         </Card>
@@ -279,6 +303,12 @@ export default async function MyDashboardPage() {
           myInitIds={myInitIds}
         />
       )}
+
+      {/* Mentions tab */}
+      <MyMentions
+        mentions={JSON.parse(JSON.stringify(myMentions))}
+        people={JSON.parse(JSON.stringify(allPeople))}
+      />
 
       {/* Recent Issues */}
       {myIssues.length > 0 && (

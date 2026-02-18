@@ -206,6 +206,7 @@ model OpenIssue {
   workstream      Workstream @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
   subTask         SubTask?   @relation(fields: [subTaskId], references: [id], onDelete: SetNull)
   comments        IssueComment[]
+  mentions        IssueMention[]
   userSeen        UserIssueSeen[]
 }
 
@@ -219,7 +220,8 @@ model IssueComment {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  issue       OpenIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  issue       OpenIssue      @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  mentions    IssueMention[]
 }
 
 model InitiativeDependency {
@@ -310,6 +312,7 @@ model Person {
   user            User?     @relation(fields: [userId], references: [id])
   assignments     Assignment[]
   assignedSubTasks SubTask[]
+  mentions        IssueMention[]
 }
 
 // ─── ASSIGNMENT ────────────────────────────────────────
@@ -406,4 +409,20 @@ model UserIssueSeen {
   issue      OpenIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
 
   @@unique([userId, issueId])
+}
+
+// ─── ISSUE MENTION ──────────────────────────────────────
+// Tracks @mentions of people in issue comments.
+
+model IssueMention {
+  id         String    @id @default(cuid())
+  issueId    String
+  commentId  String
+  personId   String
+  createdAt  DateTime  @default(now())
+  seenAt     DateTime? // null = unseen
+
+  issue      OpenIssue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  comment    IssueComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  person     Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
 }

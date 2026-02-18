@@ -112,8 +112,77 @@ export async function addIssueComment(data: unknown) {
       authorName: parsed.authorName || null,
     },
   });
+
+  // Parse @mentions from comment body (e.g. @John Doe or @JD)
+  const mentionPattern = /@([A-Za-z][A-Za-z\s]*?)(?=\s@|[.,!?\s]*$|[.,!?]\s)/g;
+  const mentionNames: string[] = [];
+  let match;
+  while ((match = mentionPattern.exec(parsed.body)) !== null) {
+    mentionNames.push(match[1].trim());
+  }
+
+  if (mentionNames.length > 0) {
+    // Find people matching mentioned names (case-insensitive) or initials
+    const allPeople = await prisma.person.findMany({
+      select: { id: true, name: true, initials: true },
+    });
+
+    const mentionedPeople = new Set<string>();
+    for (const mName of mentionNames) {
+      const lower = mName.toLowerCase();
+      for (const p of allPeople) {
+        if (
+          p.name.toLowerCase() === lower ||
+          p.initials?.toLowerCase() === lower ||
+          p.name.toLowerCase().startsWith(lower)
+        ) {
+          mentionedPeople.add(p.id);
+        }
+      }
+    }
+
+    // Create mention records
+    for (const personId of mentionedPeople) {
+      await prisma.issueMention.create({
+        data: {
+          issueId: parsed.issueId,
+          commentId: comment.id,
+          personId,
+        },
+      });
+    }
+  }
+
   revalidatePath("/open-issues");
+  revalidatePath("/my-dashboard");
   return comment;
+}
+
+/** Get mentions for a person (for My Dashboard) */
+export async function getMentionsForPerson(personId: string) {
+  return prisma.issueMention.findMany({
+    where: { personId },
+    include: {
+      issue: {
+        include: {
+          workstream: { select: { id: true, name: true, slug: true } },
+          subTask: { select: { id: true, name: true } },
+          comments: { orderBy: { createdAt: "desc" }, take: 3 },
+        },
+      },
+      comment: { select: { id: true, body: true, authorName: true, createdAt: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/** Mark a mention as seen */
+export async function markMentionSeen(mentionId: string) {
+  await prisma.issueMention.update({
+    where: { id: mentionId },
+    data: { seenAt: new Date() },
+  });
+  revalidatePath("/my-dashboard");
 }
 
 export async function deleteIssueComment(id: string) {

@@ -4,6 +4,11 @@ import { OpenIssuesView } from "./open-issues-view";
 export const dynamic = "force-dynamic";
 
 export default async function OpenIssuesPage() {
+  const people = await prisma.person.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, initials: true },
+  });
+
   const workstreams = await prisma.workstream.findMany({
     orderBy: { sortOrder: "asc" },
     select: {
@@ -53,6 +58,7 @@ export default async function OpenIssuesPage() {
       <OpenIssuesView
         workstreams={JSON.parse(JSON.stringify(workstreams))}
         issues={JSON.parse(JSON.stringify(issues))}
+        people={JSON.parse(JSON.stringify(people))}
       />
     </div>
   );
