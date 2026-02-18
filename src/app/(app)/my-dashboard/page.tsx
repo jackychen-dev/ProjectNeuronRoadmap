@@ -22,111 +22,107 @@ export default async function MyDashboardPage() {
 
   // Find the Person linked to this user
   const person = await prisma.person.findUnique({ where: { userId } });
-  
-  // Fetch initiatives: owned by user OR containing subtasks assigned to this person
-  const myInitiatives = await prisma.initiative.findMany({
-    where: {
-      archivedAt: null,
-      OR: [
-        { ownerId: userId },
-        ...(person ? [{ subTasks: { some: { assigneeId: person.id } } }] : []),
-      ],
-    },
-    include: {
-      workstream: { select: { name: true, slug: true, color: true } },
-      subTasks: {
-        orderBy: { sortOrder: "asc" },
-        include: {
-          assignee: { select: { id: true, name: true, initials: true } },
+
+  // ── Batch 1: independent queries that only need userId / person.id ──
+  const [myInitiatives, mySubTasks, myMentions, allPeople, seen] = await Promise.all([
+    // Initiatives owned by user OR containing subtasks assigned to this person
+    prisma.initiative.findMany({
+      where: {
+        archivedAt: null,
+        OR: [
+          { ownerId: userId },
+          ...(person ? [{ subTasks: { some: { assigneeId: person.id } } }] : []),
+        ],
+      },
+      include: {
+        workstream: { select: { name: true, slug: true, color: true } },
+        subTasks: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            assignee: { select: { id: true, name: true, initials: true } },
+          },
         },
       },
-    },
-    orderBy: { sortOrder: "asc" },
-  });
-
-  // Fetch subtasks assigned to this person (include estimation fields + IDs for burndown)
-  const mySubTasks = person ? await prisma.subTask.findMany({
-    where: { assigneeId: person.id },
-    include: {
-      initiative: {
-        select: {
-          id: true,
-          name: true,
-          workstream: { select: { id: true, name: true, slug: true, color: true, programId: true, targetCompletionDate: true } },
+      orderBy: { sortOrder: "asc" },
+    }),
+    // Subtasks assigned to this person
+    person ? prisma.subTask.findMany({
+      where: { assigneeId: person.id },
+      include: {
+        initiative: {
+          select: {
+            id: true,
+            name: true,
+            workstream: { select: { id: true, name: true, slug: true, color: true, programId: true, targetCompletionDate: true } },
+          },
         },
       },
-    },
-    orderBy: [{ initiative: { workstream: { sortOrder: "asc" } } }, { initiative: { sortOrder: "asc" } }, { sortOrder: "asc" }],
-  }) : [];
+      orderBy: [{ initiative: { workstream: { sortOrder: "asc" } } }, { initiative: { sortOrder: "asc" } }, { sortOrder: "asc" }],
+    }) : Promise.resolve([]),
+    // Mentions where this person was @mentioned
+    person ? getMentionsForPerson(person.id) : Promise.resolve([]),
+    // All people for mention autocomplete
+    prisma.person.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, initials: true },
+    }),
+    // Issue seen tracking
+    prisma.userIssueSeen.findMany({
+      where: { userId },
+      select: { issueId: true, lastSeenAt: true },
+    }),
+  ]);
 
-  // Collect unique workstream & subcomponent IDs the user is assigned to for burndown
-  const myWsIds = [...new Set(mySubTasks.map(st => st.initiative.workstream.id))];
-  const myInitIds = [...new Set(mySubTasks.map(st => st.initiative.id))];
-  const myProgramIds = [...new Set(mySubTasks.map(st => st.initiative.workstream.programId))];
-
-  // Fetch workstreams with full initiative/subtask data for live burndown calcs
-  const myWorkstreamsForBurn = myWsIds.length > 0 ? await prisma.workstream.findMany({
-    where: { id: { in: myWsIds } },
-    include: {
-      initiatives: {
-        where: { archivedAt: null },
-        include: { subTasks: { select: { points: true, completionPercent: true } } },
-      },
-    },
-  }) : [];
-
-  // Fetch snapshots for relevant programs
-  const mySnapshots = myProgramIds.length > 0 ? await prisma.burnSnapshot.findMany({
-    where: { programId: { in: myProgramIds } },
-    orderBy: { date: "asc" },
-    select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true, workstreamData: true },
-  }) : [];
-
-  // Fetch programs for timeline info
-  const myPrograms = myProgramIds.length > 0 ? await prisma.program.findMany({
-    where: { id: { in: myProgramIds } },
-    select: { id: true, name: true, fyStartYear: true, fyEndYear: true, startDate: true, targetDate: true },
-  }) : [];
-  
-  // Fetch mentions where this person was @mentioned
-  const myMentions = person
-    ? await getMentionsForPerson(person.id)
-    : [];
-
-  // Fetch all people for mention autocomplete in replies
-  const allPeople = await prisma.person.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, initials: true },
-  });
-
-  const unseenMentionCount = myMentions.filter((m) => !m.seenAt).length;
-
-  // Fetch issues related to user's owned initiatives OR assigned subtasks
-  const myIssues = await prisma.openIssue.findMany({
-    where: {
-      resolvedAt: null,
-      OR: [
-        { subTask: { initiative: { ownerId: userId } } },
-        ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
-        // Also include issues on workstreams that contain user's assigned subtasks
-        ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
-      ],
-    },
-    include: {
-      workstream: { select: { name: true } },
-      subTask: { select: { name: true, assigneeId: true } },
-      comments: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
-  
-  // Check for new replies
-  const seen = await prisma.userIssueSeen.findMany({
-    where: { userId },
-    select: { issueId: true, lastSeenAt: true },
-  });
   const seenMap = new Map(seen.map(s => [s.issueId, s.lastSeenAt]));
+  const unseenMentionCount = myMentions.filter((m: any) => !m.seenAt).length;
+
+  // Collect unique workstream & subcomponent IDs from subtasks
+  const myWsIds = [...new Set(mySubTasks.map((st: any) => st.initiative.workstream.id))];
+  const myInitIds = [...new Set(mySubTasks.map((st: any) => st.initiative.id))];
+  const myProgramIds = [...new Set(mySubTasks.map((st: any) => st.initiative.workstream.programId))];
+
+  // ── Batch 2: queries that depend on subtask results ──
+  const [myWorkstreamsForBurn, mySnapshots, myPrograms, myIssues] = await Promise.all([
+    // Workstreams for live burndown calcs
+    myWsIds.length > 0 ? prisma.workstream.findMany({
+      where: { id: { in: myWsIds } },
+      include: {
+        initiatives: {
+          where: { archivedAt: null },
+          include: { subTasks: { select: { points: true, completionPercent: true } } },
+        },
+      },
+    }) : Promise.resolve([]),
+    // Snapshots for relevant programs
+    myProgramIds.length > 0 ? prisma.burnSnapshot.findMany({
+      where: { programId: { in: myProgramIds } },
+      orderBy: { date: "asc" },
+      select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true, workstreamData: true },
+    }) : Promise.resolve([]),
+    // Programs for timeline info
+    myProgramIds.length > 0 ? prisma.program.findMany({
+      where: { id: { in: myProgramIds } },
+      select: { id: true, name: true, fyStartYear: true, fyEndYear: true, startDate: true, targetDate: true },
+    }) : Promise.resolve([]),
+    // Issues related to user's owned initiatives OR assigned subtasks
+    prisma.openIssue.findMany({
+      where: {
+        resolvedAt: null,
+        OR: [
+          { subTask: { initiative: { ownerId: userId } } },
+          ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
+          ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
+        ],
+      },
+      include: {
+        workstream: { select: { name: true } },
+        subTask: { select: { name: true, assigneeId: true } },
+        comments: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+  ]);
   
   let newReplyCount = 0;
   for (const issue of myIssues) {

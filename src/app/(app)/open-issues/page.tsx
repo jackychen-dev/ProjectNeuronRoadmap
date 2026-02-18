@@ -4,48 +4,48 @@ import { OpenIssuesView } from "./open-issues-view";
 export const dynamic = "force-dynamic";
 
 export default async function OpenIssuesPage() {
-  const people = await prisma.person.findMany({
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, initials: true },
-  });
-
-  const workstreams = await prisma.workstream.findMany({
-    orderBy: { sortOrder: "asc" },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      initiatives: {
-        where: { archivedAt: null },
-        orderBy: { sortOrder: "asc" },
-        select: {
-          id: true,
-          name: true,
-          subTasks: {
-            orderBy: { sortOrder: "asc" },
-            select: { id: true, name: true },
+  const [people, workstreams, issues] = await Promise.all([
+    prisma.person.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, initials: true },
+    }),
+    prisma.workstream.findMany({
+      orderBy: { sortOrder: "asc" },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        initiatives: {
+          where: { archivedAt: null },
+          orderBy: { sortOrder: "asc" },
+          select: {
+            id: true,
+            name: true,
+            subTasks: {
+              orderBy: { sortOrder: "asc" },
+              select: { id: true, name: true },
+            },
           },
         },
       },
-    },
-  });
-
-  const issues = await prisma.openIssue.findMany({
-    include: {
-      workstream: { select: { id: true, name: true, slug: true } },
-      subTask: {
-        select: {
-          id: true,
-          name: true,
-          initiative: { select: { id: true, name: true } },
+    }),
+    prisma.openIssue.findMany({
+      include: {
+        workstream: { select: { id: true, name: true, slug: true } },
+        subTask: {
+          select: {
+            id: true,
+            name: true,
+            initiative: { select: { id: true, name: true } },
+          },
+        },
+        comments: {
+          orderBy: { createdAt: "asc" },
         },
       },
-      comments: {
-        orderBy: { createdAt: "asc" },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   return (
     <div className="space-y-4">
