@@ -345,9 +345,9 @@ export default async function MyDashboardPage() {
       {/* Burndown charts for my assigned workstreams/subcomponents */}
       {myWsIds.length > 0 && (
         <MyBurndownCharts
-          programs={serializeForClient(myPrograms)}
-          workstreams={serializeForClient(myWorkstreamsForBurn)}
-          snapshots={serializeForClient(mySnapshots)}
+          programs={serializeForClient(myPrograms) as unknown as Parameters<typeof MyBurndownCharts>[0]["programs"]}
+          workstreams={serializeForClient(myWorkstreamsForBurn) as unknown as Parameters<typeof MyBurndownCharts>[0]["workstreams"]}
+          snapshots={serializeForClient(mySnapshots) as unknown as Parameters<typeof MyBurndownCharts>[0]["snapshots"]}
           myWsIds={myWsIds}
           myInitIds={myInitIds}
         />
@@ -355,8 +355,8 @@ export default async function MyDashboardPage() {
 
       {/* Mentions tab */}
       <MyMentions
-        mentions={serializeForClient(myMentions)}
-        people={serializeForClient(allPeople)}
+        mentions={serializeForClient(myMentions) as unknown as Parameters<typeof MyMentions>[0]["mentions"]}
+        people={serializeForClient(allPeople) as unknown as Parameters<typeof MyMentions>[0]["people"]}
       />
 
       {/* Recent Issues */}

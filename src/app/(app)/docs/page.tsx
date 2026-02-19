@@ -29,12 +29,13 @@ export default async function DocsPage() {
     }),
   ]);
 
+  type P = Parameters<typeof DocsView>[0];
   return (
     <DocsView
-      docs={serializeForClient(docs)}
-      programs={serializeForClient(programs)}
-      workstreams={serializeForClient(workstreams)}
-      initiatives={serializeForClient(initiatives)}
+      docs={serializeForClient(docs) as unknown as P["docs"]}
+      programs={serializeForClient(programs) as unknown as P["programs"]}
+      workstreams={serializeForClient(workstreams) as unknown as P["workstreams"]}
+      initiatives={serializeForClient(initiatives) as unknown as P["initiatives"]}
       userId={userId}
     />
   );

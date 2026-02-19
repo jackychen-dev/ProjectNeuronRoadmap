@@ -110,7 +110,7 @@ export default async function DashboardPage() {
     data = await loadDashboardData();
   } catch {
     try {
-      data = await loadDashboardDataFallback();
+      data = await loadDashboardDataFallback() as Awaited<ReturnType<typeof loadDashboardData>>;
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       throw new Error(`Dashboard data load failed: ${err.message}`, { cause: err });
@@ -366,9 +366,9 @@ export default async function DashboardPage() {
 
       {/* ── Overall Burndown Chart ── */}
       <OverallBurndownChart
-        programs={serializeForClient(burnPrograms ?? [])}
-        workstreams={serializeForClient(burnWorkstreams ?? [])}
-        snapshots={serializeForClient(burnSnapshots ?? [])}
+        programs={serializeForClient(burnPrograms ?? []) as unknown as Parameters<typeof OverallBurndownChart>[0]["programs"]}
+        workstreams={serializeForClient(burnWorkstreams ?? []) as unknown as Parameters<typeof OverallBurndownChart>[0]["workstreams"]}
+        snapshots={serializeForClient(burnSnapshots ?? []) as unknown as Parameters<typeof OverallBurndownChart>[0]["snapshots"]}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -45,9 +45,9 @@ export default async function BurndownPage() {
 
   return (
     <BurndownView
-      programs={serializeForClient(programs)}
-      workstreams={serializeForClient(workstreams)}
-      snapshots={serializeForClient(snapshots)}
+      programs={serializeForClient(programs) as unknown as { id: string; name: string; fyStartYear: number; fyEndYear: number; startDate: string | null; targetDate: string | null }[]}
+      workstreams={serializeForClient(workstreams) as unknown as Parameters<typeof BurndownView>[0]["workstreams"]}
+      snapshots={serializeForClient(snapshots) as unknown as Parameters<typeof BurndownView>[0]["snapshots"]}
     />
   );
 }

@@ -22,7 +22,7 @@ export default async function PartnersPage() {
           Key technology, research, and industry partners driving Project Neuron
         </p>
       </div>
-      <PartnersView partners={serializeForClient(partners)} />
+      <PartnersView partners={serializeForClient(partners) as unknown as Parameters<typeof PartnersView>[0]["partners"]} />
     </div>
   );
 }

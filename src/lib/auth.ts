@@ -51,7 +51,7 @@ export const authOptions: NextAuthOptions = {
         });
         if (u) {
           token.id = u.id;
-          token.role = u.role;
+          token.role = u.role as "ADMIN" | "MEMBER";
         }
       }
       return token;

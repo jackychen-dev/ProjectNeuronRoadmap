@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -333,7 +334,7 @@ export function OpenIssuesView({
                   />
                   {newScreenshot && (
                     <div className="relative">
-                      <img src={newScreenshot} alt="Screenshot preview" className="h-16 rounded border" />
+                      <Image src={newScreenshot} alt="Screenshot preview" width={64} height={64} className="h-16 w-16 rounded border object-cover" unoptimized />
                       <button
                         className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center"
                         onClick={() => { setNewScreenshot(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
@@ -820,11 +821,14 @@ function IssueCard({
           {issue.screenshotUrl && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1">Screenshot</p>
-              <img
+              <Image
                 src={issue.screenshotUrl}
                 alt="Issue screenshot"
-                className="max-h-64 rounded-lg border cursor-pointer"
+                width={400}
+                height={256}
+                className="max-h-64 w-auto rounded-lg border cursor-pointer"
                 onClick={() => window.open(issue.screenshotUrl!, "_blank")}
+                unoptimized
               />
             </div>
           )}

@@ -21,11 +21,12 @@ export default async function AdminPage() {
     }),
   ]);
 
+  type SerializedUser = { id: string; email: string; name: string | null; role: string; createdAt: string };
   return (
     <AdminView
-    users={serializeForClient(users)}
-    people={serializeForClient(people)}
-    refinementInitiatives={serializeForClient(needsRefinement)}
+      users={serializeForClient(users) as unknown as SerializedUser[]}
+      people={serializeForClient(people)}
+      refinementInitiatives={serializeForClient(needsRefinement)}
     />
   );
 }

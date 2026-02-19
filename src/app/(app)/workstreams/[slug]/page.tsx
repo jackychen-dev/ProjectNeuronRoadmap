@@ -58,20 +58,14 @@ export default async function WorkstreamDetailPage({
     },
   });
 
-  // Serialize for client
-  const serialized = serializeForClient(ws);
-  const serializedPeople = serializeForClient(people);
-  const serializedIssues = serializeForClient(openIssues);
-  const serializedUsers = serializeForClient(users);
-  const serializedSnapshots = serializeForClient(burnSnapshots);
-
+  type P = Parameters<typeof WorkstreamView>[0];
   return (
     <WorkstreamView
-      workstream={serialized}
-      people={serializedPeople}
-      openIssues={serializedIssues}
-      users={serializedUsers}
-      burnSnapshots={serializedSnapshots}
+      workstream={serializeForClient(ws) as unknown as P["workstream"]}
+      people={serializeForClient(people) as unknown as P["people"]}
+      openIssues={serializeForClient(openIssues) as unknown as P["openIssues"]}
+      users={serializeForClient(users) as unknown as P["users"]}
+      burnSnapshots={serializeForClient(burnSnapshots) as unknown as P["burnSnapshots"]}
     />
   );
 }
