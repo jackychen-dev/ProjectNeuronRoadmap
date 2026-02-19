@@ -238,6 +238,7 @@ model IssueComment {
   parent      IssueComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies     IssueComment[] @relation("CommentReplies")
   mentions    IssueCommentMention[]
+  issueMentions IssueMention[]  // back-relation for notification/seen tracking
 }
 
 // ─── ISSUE COMMENT MENTION (@people) ─────────────────
@@ -343,6 +344,7 @@ model Person {
   assignedSubTasks    SubTask[]
   openIssueAssignments OpenIssueAssignee[]
   issueMentions       IssueCommentMention[]
+  issueMentionSeen    IssueMention[]  // back-relation for @mention notification/seen
 }
 
 // ─── ASSIGNMENT ────────────────────────────────────────
