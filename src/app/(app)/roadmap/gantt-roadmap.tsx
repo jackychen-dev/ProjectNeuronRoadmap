@@ -156,8 +156,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
       initiatives: ws.initiatives.filter(
         (i) => statusFilter === "all" || i.status === statusFilter
       ),
-    }))
-    .filter((ws) => ws.initiatives.length > 0 || wsFilter !== "all");
+    }));
 
   // FY header groups
   const fyGroups: { label: string; start: number; span: number }[] = [];
