@@ -154,15 +154,20 @@ export async function addIssueComment(data: unknown) {
     },
   });
 
-  for (const personId of mentionedIds) {
-    await prisma.issueCommentMention.upsert({
-      where: { commentId_personId: { commentId: comment.id, personId } },
-      create: { commentId: comment.id, personId },
-      update: {},
-    });
-    await prisma.issueMention.create({
-      data: { issueId: parsed.issueId, commentId: comment.id, personId },
-    }).catch(() => {}); // ignore duplicate if any
+  // Create @mention records if tables exist (optional on deploy; comment is already saved)
+  try {
+    for (const personId of mentionedIds) {
+      await prisma.issueCommentMention.upsert({
+        where: { commentId_personId: { commentId: comment.id, personId } },
+        create: { commentId: comment.id, personId },
+        update: {},
+      });
+      await prisma.issueMention.create({
+        data: { issueId: parsed.issueId, commentId: comment.id, personId },
+      }).catch(() => {});
+    }
+  } catch {
+    // Mention tables may be missing before migrations; comment was already created
   }
 
   revalidatePath("/open-issues");
