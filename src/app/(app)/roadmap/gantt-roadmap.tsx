@@ -384,9 +384,9 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
                     <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: ws.color || "#888" }} />
                     <span className="truncate" title={ws.name}>{ws.name}</span>
                   </div>
-                  <div className="flex items-center gap-2 ml-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-2 ml-1">
                     <button
-                      className="text-sm font-semibold text-primary hover:text-primary/80 whitespace-nowrap"
+                      className="text-sm font-semibold text-primary hover:text-primary/80 whitespace-nowrap px-2 py-1 rounded border border-primary/30 hover:bg-primary/10"
                       onClick={(e) => { e.stopPropagation(); setAddingInitWs(ws.id); setNewInit({ name: "", category: "TOOLING", start: "", end: "" }); }}
                     >
                       + Add initiative

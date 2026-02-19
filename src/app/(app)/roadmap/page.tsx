@@ -71,7 +71,7 @@ export default async function RoadmapPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-3xl font-bold">Roadmap</h1>
-        <p className="text-muted-foreground mt-1">FY26 – FY28 Program Timeline by Workstream. Use <strong>+ New Workstream</strong> to add sections (e.g. Connectors, Kit Applications, Web Platform); then <strong>+ Add initiative</strong> on each workstream to add items.</p>
+        <p className="text-muted-foreground mt-1">FY26 – FY28 Program Timeline by Workstream. Click <strong>+ Add initiative</strong> next to a workstream name to add an initiative there, or <strong>+ New Workstream</strong> to add a new section (e.g. Connectors, Kit Applications).</p>
       </div>
       <GanttRoadmap
         workstreams={serializeForClient(data)}

@@ -41,6 +41,7 @@ export default async function MyDashboardPage() {
     }
   }
 
+  try {
   // ── Batch 1: initiatives, subtasks, mentions, people, seen ──
   const [myInitiatives, mySubTasks, myMentions, allPeople, seen] = await Promise.all([
     prisma.initiative.findMany({
@@ -75,7 +76,7 @@ export default async function MyDashboardPage() {
       },
       orderBy: [{ initiative: { workstream: { sortOrder: "asc" } } }, { initiative: { sortOrder: "asc" } }, { sortOrder: "asc" }],
     }) : Promise.resolve([]),
-    person ? getMentionsForPerson(person.id) : Promise.resolve([]),
+    person ? getMentionsForPerson(person.id).catch(() => []) : Promise.resolve([]),
     prisma.person.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, initials: true },
@@ -389,4 +390,29 @@ export default async function MyDashboardPage() {
       )}
     </div>
   );
+  } catch (_err) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold">My Dashboard</h1>
+        <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+          <CardHeader>
+            <CardTitle className="text-amber-800 dark:text-amber-200">Could not load your dashboard</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              A temporary error occurred loading your initiatives and tasks. This can happen if the database is still being set up or a migration is pending.
+            </p>
+            <div className="flex gap-2">
+              <Link href="/my-dashboard">
+                <Button variant="default">Try again</Button>
+              </Link>
+              <Link href="/dashboard">
+                <Button variant="outline">Go to main Dashboard</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 }
