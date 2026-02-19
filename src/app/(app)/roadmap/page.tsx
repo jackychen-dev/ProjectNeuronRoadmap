@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import { GanttRoadmap } from "./gantt-roadmap";
 
 export const dynamic = "force-dynamic";
@@ -70,12 +71,12 @@ export default async function RoadmapPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-3xl font-bold">Roadmap</h1>
-        <p className="text-muted-foreground mt-1">FY26 – FY28 Program Timeline by Workstream</p>
+        <p className="text-muted-foreground mt-1">FY26 – FY28 Program Timeline by Workstream. Use <strong>+ New Workstream</strong> to add sections (e.g. Connectors, Kit Applications, Web Platform); then <strong>+ Add initiative</strong> on each workstream to add items.</p>
       </div>
       <GanttRoadmap
-        workstreams={JSON.parse(JSON.stringify(data))}
-        people={JSON.parse(JSON.stringify(people))}
-        programs={JSON.parse(JSON.stringify(programsWithStats))}
+        workstreams={serializeForClient(data)}
+        people={serializeForClient(people)}
+        programs={serializeForClient(programsWithStats)}
       />
     </div>
   );

@@ -2,111 +2,102 @@
 
 import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getCurrentPeriod, getMonthlyPeriods, parseTargetMonth, type BurnPeriod } from "@/lib/burn-periods";
+import { getCurrentPeriod } from "@/lib/burn-periods";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  buildTimeline,
+  buildChartData,
+  buildOverallSnapshotByDate,
+  type ProgramRef,
+  type ChartPoint,
+  type BurnSnapshotForChart,
+} from "@/lib/burndown-chart-data";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ReferenceLine,
 } from "recharts";
 
-interface BurnSnapshotData {
-  id: string; programId: string; date: string;
-  totalPoints: number; completedPoints: number; percentComplete: number;
-}
-
-interface ProgramRef {
-  id: string; name: string; fyStartYear: number; fyEndYear: number;
-  startDate: string | null; targetDate: string | null;
+interface SubTaskRef {
+  points: number;
+  completionPercent: number;
+  isAddedScope?: boolean;
+  assignedOrganization?: string | null;
 }
 
 interface WorkstreamRef {
-  id: string; targetCompletionDate: string | null;
-  initiatives: { subTasks: { points: number; completionPercent: number }[] }[];
+  id: string;
+  targetCompletionDate: string | null;
+  initiatives: { subTasks: SubTaskRef[] }[];
 }
 
-interface ChartPoint {
-  label: string; remaining: number | null; ideal: number; scopeLine: number; isCurrent: boolean;
+function stBasePoints(st: SubTaskRef): number {
+  return st.isAddedScope ? 0 : st.points;
 }
 
-function buildTimeline(program: ProgramRef, workstreams: WorkstreamRef[]): BurnPeriod[] {
-  let startYear = 2000 + program.fyStartYear;
-  let startMonth = 1;
-  if (program.startDate) {
-    const d = new Date(program.startDate);
-    startYear = d.getFullYear();
-    startMonth = d.getMonth() + 1;
-  }
-  let endYear = 2000 + program.fyEndYear;
-  let endMonth = 11;
-  for (const ws of workstreams) {
-    const parsed = parseTargetMonth(ws.targetCompletionDate);
-    if (parsed && (parsed.year > endYear || (parsed.year === endYear && parsed.month > endMonth))) {
-      endYear = parsed.year;
-      endMonth = parsed.month;
-    }
-  }
-  if (program.targetDate) {
-    const d = new Date(program.targetDate);
-    endYear = d.getFullYear();
-    endMonth = d.getMonth() + 1;
-  }
-  return getMonthlyPeriods(startYear, startMonth, endYear, endMonth);
+function stScopePoints(st: SubTaskRef): number {
+  return st.points;
+}
+
+function stCompletedPts(st: SubTaskRef): number {
+  return Math.round(st.points * (st.completionPercent / 100));
 }
 
 export default function OverallBurndownChart({
-  programs, workstreams, snapshots,
+  programs,
+  workstreams,
+  snapshots,
 }: {
   programs: ProgramRef[];
   workstreams: WorkstreamRef[];
-  snapshots: BurnSnapshotData[];
+  snapshots: BurnSnapshotForChart[];
 }) {
   const currentPeriod = useMemo(() => getCurrentPeriod(), []);
   const activeProgram = programs[0];
 
-  const programTotalPts = workstreams.reduce(
-    (s, ws) => s + ws.initiatives.reduce(
-      (si, i) => si + i.subTasks.reduce((st, t) => st + t.points, 0), 0), 0);
-  const programCompletedPts = workstreams.reduce(
-    (s, ws) => s + ws.initiatives.reduce(
-      (si, i) => si + i.subTasks.reduce((st, t) => st + Math.round(t.points * (t.completionPercent / 100)), 0), 0), 0);
+  // Same live totals as Burndown page (orgFilter "all" = no filtering)
+  const { programBasePts, programScopePts, programCompletedPts } = useMemo(() => {
+    let base = 0,
+      scope = 0,
+      completed = 0;
+    for (const ws of workstreams) {
+      for (const init of ws.initiatives) {
+        for (const t of init.subTasks) {
+          base += stBasePoints(t);
+          scope += stScopePoints(t);
+          completed += stCompletedPts(t);
+        }
+      }
+    }
+    return { programBasePts: base, programScopePts: scope, programCompletedPts: completed };
+  }, [workstreams]);
 
-  const chartData = useMemo(() => {
+  const chartData = useMemo((): ChartPoint[] => {
     if (!activeProgram) return [];
     const allPeriods = buildTimeline(activeProgram, workstreams);
-    const totalPeriods = allPeriods.length;
-    const lastIdx = totalPeriods - 1 || 1;
-    const startTotal = programTotalPts;
-
-    const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
-    for (const snap of snapshots.filter(s => s.programId === activeProgram.id)) {
-      const e = byDate.get(snap.date) || { totalPoints: 0, completedPoints: 0 };
-      e.totalPoints += snap.totalPoints;
-      e.completedPoints += snap.completedPoints;
-      byDate.set(snap.date, e);
-    }
-
-    const scopeRaw: number[] = [];
-    let lastScope = startTotal;
-    for (const p of allPeriods) {
-      const snap = byDate.get(p.dateKey);
-      const isCurrent = p.dateKey === currentPeriod.dateKey;
-      if (snap) lastScope = snap.totalPoints;
-      else if (isCurrent) lastScope = programTotalPts;
-      scopeRaw.push(lastScope);
-    }
-
-    return allPeriods.map((period, idx): ChartPoint => {
-      const snap = byDate.get(period.dateKey);
-      const isCurrent = period.dateKey === currentPeriod.dateKey;
-      const ideal = Math.max(0, Math.round(startTotal * (1 - idx / lastIdx)));
-      const scopeLine = Math.max(0, Math.round(scopeRaw[idx] * (1 - idx / lastIdx)));
-
-      let remaining: number | null = null;
-      if (idx === 0) remaining = snap ? snap.totalPoints - snap.completedPoints : scopeRaw[idx];
-      else if (snap) remaining = snap.totalPoints - snap.completedPoints;
-      else if (isCurrent) remaining = programTotalPts - programCompletedPts;
-
-      return { label: period.shortLabel, remaining, ideal, scopeLine, isCurrent };
-    });
-  }, [activeProgram, workstreams, snapshots, currentPeriod, programTotalPts, programCompletedPts]);
+    const byDate = buildOverallSnapshotByDate(snapshots, activeProgram.id);
+    return buildChartData(
+      allPeriods,
+      byDate,
+      programBasePts,
+      programScopePts - programCompletedPts,
+      programScopePts,
+      currentPeriod
+    );
+  }, [
+    activeProgram,
+    workstreams,
+    snapshots,
+    currentPeriod,
+    programBasePts,
+    programScopePts,
+    programCompletedPts,
+  ]);
 
   if (chartData.length === 0) return null;
 
@@ -126,16 +117,44 @@ export default function OverallBurndownChart({
             <YAxis tick={{ fontSize: 10 }} width={35} />
             <Tooltip />
             <Legend />
-            {chartData.some(d => d.isCurrent) && (
-              <ReferenceLine x={chartData.find(d => d.isCurrent)?.label} stroke="#f97316" strokeDasharray="4 4" label={{ value: "Now", position: "top", fontSize: 9, fill: "#f97316" }} />
+            {chartData.some((d) => d.isCurrent) && (
+              <ReferenceLine
+                x={chartData.find((d) => d.isCurrent)?.label}
+                stroke="#f97316"
+                strokeDasharray="4 4"
+                label={{ value: "Now", position: "top", fontSize: 9, fill: "#f97316" }}
+              />
             )}
-            <Line type="monotone" dataKey="scopeLine" stroke="#a855f7" strokeWidth={2} dot={{ r: 1.5, fill: "#a855f7", strokeWidth: 0 }} name="Scope Adjusted" />
-            <Line type="monotone" dataKey="ideal" stroke="#3b82f6" strokeWidth={2} dot={{ r: 1.5, fill: "#3b82f6", strokeWidth: 0 }} name="Ideal" strokeDasharray="5 5" />
-            <Line type="monotone" dataKey="remaining" stroke="#f97316" strokeWidth={3} dot={(props: any) => {
-              const { cx, cy, payload } = props;
-              if (payload?.remaining === null || payload?.remaining === undefined) return <g />;
-              return <circle cx={cx} cy={cy} r={2.5} fill="#f97316" />;
-            }} name="Remaining" connectNulls />
+            <Line
+              type="monotone"
+              dataKey="scopeLine"
+              stroke="#a855f7"
+              strokeWidth={2}
+              dot={{ r: 1.5, fill: "#a855f7", strokeWidth: 0 }}
+              name="Scope Adjusted"
+            />
+            <Line
+              type="monotone"
+              dataKey="ideal"
+              stroke="#3b82f6"
+              strokeWidth={2}
+              dot={{ r: 1.5, fill: "#3b82f6", strokeWidth: 0 }}
+              name="Ideal"
+              strokeDasharray="5 5"
+            />
+            <Line
+              type="monotone"
+              dataKey="remaining"
+              stroke="#f97316"
+              strokeWidth={3}
+              dot={(props: { cx?: number; cy?: number; payload?: ChartPoint }) => {
+                const { cx, cy, payload } = props;
+                if (payload?.remaining === null || payload?.remaining === undefined) return <g />;
+                return <circle cx={cx} cy={cy} r={2.5} fill="#f97316" />;
+              }}
+              name="Remaining"
+              connectNulls
+            />
           </LineChart>
         </ResponsiveContainer>
       </CardContent>

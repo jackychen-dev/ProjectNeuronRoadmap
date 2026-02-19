@@ -6,8 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { updateInitiativeField } from "@/lib/actions/initiatives";
-import { createInitiative } from "@/lib/actions/initiatives";
+import { updateInitiativeField, createInitiative, archiveInitiative } from "@/lib/actions/initiatives";
 import { createWorkstream, deleteWorkstream } from "@/lib/actions/workstreams";
 import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
 import { getCurrentPeriod } from "@/lib/burn-periods";
@@ -147,7 +146,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
 
   const COL_W = 38;
   const ROW_H = 36;
-  const LABEL_W = 260;
+  const LABEL_W = 340;
 
   const filtered = workstreams
     .filter((ws) => wsFilter === "all" || ws.id === wsFilter)
@@ -383,18 +382,19 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: ws.color || "#888" }} />
-                    <span className="truncate">{ws.name}</span>
+                    <span className="truncate" title={ws.name}>{ws.name}</span>
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+                  <div className="flex items-center gap-2 ml-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       className="text-sm font-semibold text-primary hover:text-primary/80 whitespace-nowrap"
-                      onClick={() => { setAddingInitWs(ws.id); setNewInit({ name: "", category: "TOOLING", start: "", end: "" }); }}
+                      onClick={(e) => { e.stopPropagation(); setAddingInitWs(ws.id); setNewInit({ name: "", category: "TOOLING", start: "", end: "" }); }}
                     >
-                      + Add
+                      + Add initiative
                     </button>
                     <button
                       className="text-base text-red-500 hover:text-red-700 whitespace-nowrap"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (confirm(`Delete workstream "${ws.name}" and all its initiatives? This cannot be undone.`)) {
                           startTransition(async () => {
                             await trackedSave(() => deleteWorkstream(ws.id));
@@ -415,7 +415,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
                     style={{ height: ROW_H }}
                     onClick={() => setSelectedInit(init)}
                   >
-                    <span className="truncate flex-1">{init.name}</span>
+                    <span className="truncate flex-1" title={init.name}>{init.name}</span>
                     {init.needsRefinement && (
                       <Badge variant="outline" className="ml-1 text-[9px] text-amber-600 border-amber-400 px-1">refine</Badge>
                     )}
@@ -432,6 +432,21 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
                       title="Edit dates"
                     >
                       ✏️
+                    </button>
+                    <button
+                      className="text-[10px] text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Remove "${init.name}" from the roadmap? It will be archived and hidden from this view.`)) {
+                          startTransition(async () => {
+                            await trackedSave(() => archiveInitiative(init.id));
+                            refresh();
+                          });
+                        }
+                      }}
+                      title="Remove from roadmap"
+                    >
+                      🗑
                     </button>
                   </div>
                 ))}
@@ -794,7 +809,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
           <div className="w-3 h-0.5 bg-blue-400" />
           <span>Today</span>
         </div>
-        <span className="ml-auto">Click ✏️ on any initiative to edit dates · Hover workstream for + Add</span>
+        <span className="ml-auto">✏️ Edit dates · + Add initiative per workstream · + New Workstream to add a section (e.g. Connectors, Kit Applications)</span>
       </div>
     </div>
   );

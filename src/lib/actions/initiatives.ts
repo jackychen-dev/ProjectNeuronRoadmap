@@ -94,6 +94,27 @@ export async function updateInitiativeField(
   revalidatePath("/workstreams");
 }
 
+/** Set initiative owner from a Person (people tag). Syncs ownerInitials and ownerId so the dashboard shows it for the linked user. */
+export async function updateInitiativeOwner(initiativeId: string, personId: string | null) {
+  if (!personId) {
+    await prisma.initiative.update({
+      where: { id: initiativeId },
+      data: { ownerInitials: null, ownerId: null },
+    });
+  } else {
+    const person = await prisma.person.findUnique({ where: { id: personId }, select: { initials: true, userId: true } });
+    if (!person) return;
+    await prisma.initiative.update({
+      where: { id: initiativeId },
+      data: { ownerInitials: person.initials, ownerId: person.userId },
+    });
+  }
+  revalidatePath("/roadmap");
+  revalidatePath("/deliverables");
+  revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
+}
+
 export async function archiveInitiative(id: string) {
   await prisma.initiative.update({
     where: { id },

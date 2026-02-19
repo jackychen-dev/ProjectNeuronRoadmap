@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useRef } from "react";
+import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   resolveOpenIssue,
   reopenIssue,
   deleteOpenIssue,
+  setIssueAssignees,
   addIssueComment,
   deleteIssueComment,
 } from "@/lib/actions/open-issues";
@@ -38,9 +39,11 @@ interface WorkstreamRef {
 
 interface IssueComment {
   id: string;
+  parentId: string | null;
   body: string;
   authorName: string | null;
   createdAt: string;
+  mentions?: { person: { id: string; name: string; initials: string | null } }[];
 }
 
 interface OpenIssue {
@@ -55,21 +58,14 @@ interface OpenIssue {
   resolvedAt: string | null;
   workstream: { id: string; name: string; slug: string };
   subTask: SubTaskRef | null;
+  assignees?: { person: PersonRef }[];
   comments: IssueComment[];
 }
 
-/* ─── Helpers ────────────────────────────────────────── */
-
-/** Renders comment body with @mentions highlighted in blue */
-function renderCommentBody(body: string) {
-  const parts = body.split(/(@[A-Za-z][A-Za-z\s]*?)(?=\s@|[.,!?\s]*$|[.,!?]\s|\s)/g);
-  return parts.map((part, i) =>
-    part.startsWith("@") ? (
-      <span key={i} className="text-blue-600 dark:text-blue-400 font-semibold">{part}</span>
-    ) : (
-      <span key={i}>{part}</span>
-    )
-  );
+interface PersonRef {
+  id: string;
+  name: string;
+  initials: string | null;
 }
 
 /* ─── Severity Config ─────────────────────────────────── */
@@ -88,26 +84,23 @@ const SEVERITY_BADGE: Record<string, "destructive" | "secondary" | "outline"> = 
 
 /* ─── Component ───────────────────────────────────────── */
 
-interface PersonRef {
-  id: string;
-  name: string;
-  initials: string | null;
-}
-
 export function OpenIssuesView({
   workstreams,
   issues: initialIssues,
   people = [],
+  currentPersonId = null,
 }: {
   workstreams: WorkstreamRef[];
   issues: OpenIssue[];
   people?: PersonRef[];
+  currentPersonId?: string | null;
 }) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const trackedSave = useTrackedSave();
   const [filterWs, setFilterWs] = useState<string>("all");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
+  const [filterMineOnly, setFilterMineOnly] = useState(false);
   const [showResolved, setShowResolved] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
@@ -130,9 +123,16 @@ export function OpenIssuesView({
       if (filterWs !== "all" && i.workstreamId !== filterWs) return false;
       if (filterSeverity !== "all" && i.severity !== filterSeverity) return false;
       if (!showResolved && i.resolvedAt) return false;
+      if (filterMineOnly && currentPersonId) {
+        const isAssigned = (i.assignees ?? []).some((a) => a.person.id === currentPersonId);
+        const isMentioned = (i.comments ?? []).some((c) =>
+          (c.mentions ?? []).some((m) => m.person.id === currentPersonId)
+        );
+        if (!isAssigned && !isMentioned) return false;
+      }
       return true;
     });
-  }, [initialIssues, filterWs, filterSeverity, showResolved]);
+  }, [initialIssues, filterWs, filterSeverity, showResolved, filterMineOnly, currentPersonId]);
 
   // Summary counts
   const openIssues = initialIssues.filter((i) => !i.resolvedAt);
@@ -231,6 +231,16 @@ export function OpenIssuesView({
             <option value="SLOWING">Slowing</option>
             <option value="NOT_A_CONCERN">Not a Concern</option>
           </select>
+          {currentPersonId && (
+            <Button
+              size="sm"
+              variant={filterMineOnly ? "default" : "outline"}
+              className="text-xs"
+              onClick={() => setFilterMineOnly((v) => !v)}
+            >
+              My issues
+            </Button>
+          )}
           <label className="flex items-center gap-1.5 text-xs cursor-pointer">
             <input
               type="checkbox"
@@ -367,6 +377,242 @@ export function OpenIssuesView({
   );
 }
 
+/* ─── Comment textarea with @ mention suggestions ────────────────────────────────── */
+
+function CommentTextareaWithMentions({
+  value,
+  onChange,
+  onKeyDown,
+  people,
+  placeholder,
+  className,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  people: PersonRef[];
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mentionStart, setMentionStart] = useState(-1);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [highlightIdx, setHighlightIdx] = useState(0);
+
+  const suggestions = useMemo(() => {
+    if (!mentionQuery.trim()) return people.slice(0, 8);
+    const q = mentionQuery.trim().toLowerCase();
+    return people
+      .filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.initials?.toLowerCase().includes(q) ?? false)
+      )
+      .slice(0, 8);
+  }, [people, mentionQuery]);
+
+  useEffect(() => {
+    if (mentionStart < 0) return;
+    setHighlightIdx(0);
+  }, [mentionQuery, mentionStart]);
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const text = e.target.value;
+    const pos = e.target.selectionStart ?? text.length;
+    onChange(text);
+
+    let start = -1;
+    for (let i = pos - 1; i >= 0; i--) {
+      if (text[i] === "@") {
+        const fragment = text.slice(i + 1, pos);
+        if (/\s/.test(fragment)) break;
+        start = i;
+        setMentionStart(i);
+        setMentionQuery(fragment);
+        break;
+      }
+      if (/\s/.test(text[i])) break;
+    }
+    if (start < 0) {
+      setMentionStart(-1);
+      setMentionQuery("");
+    }
+  }
+
+  function insertMention(person: PersonRef) {
+    const display = person.initials || person.name;
+    const before = value.slice(0, mentionStart);
+    const after = value.slice(textareaRef.current?.selectionStart ?? mentionStart);
+    const next = before + "@" + display + " " + after;
+    onChange(next);
+    setMentionStart(-1);
+    setMentionQuery("");
+    setTimeout(() => {
+      const caret = before.length + display.length + 2;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(caret, caret);
+    }, 0);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionStart >= 0 && suggestions.length > 0) {
+      if (e.key === "Escape") {
+        setMentionStart(-1);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        setHighlightIdx((i) => (i + 1) % suggestions.length);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        setHighlightIdx((i) => (i - 1 + suggestions.length) % suggestions.length);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        insertMention(suggestions[highlightIdx]);
+        e.preventDefault();
+        return;
+      }
+    }
+    onKeyDown?.(e);
+  }
+
+  return (
+    <div className="relative">
+      <textarea
+        ref={textareaRef}
+        className={className}
+        placeholder={placeholder}
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        disabled={disabled}
+      />
+      {mentionStart >= 0 && (
+        <div
+          className="absolute z-10 mt-0.5 w-56 max-h-48 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
+          style={{ left: 0, top: "100%" }}
+        >
+          <p className="px-2 py-1 text-[10px] text-muted-foreground border-b">Type to search, Enter to pick</p>
+          {suggestions.length === 0 ? (
+            <p className="px-2 py-2 text-xs text-muted-foreground">No matches</p>
+          ) : (
+            suggestions.map((p, i) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`w-full text-left px-2 py-1.5 text-xs flex items-center gap-2 hover:bg-accent ${i === highlightIdx ? "bg-accent" : ""}`}
+                onClick={() => insertMention(p)}
+              >
+                <span className="font-medium">{p.initials || p.name}</span>
+                <span className="text-muted-foreground truncate">{p.name}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Comment block (with nested replies) ──────────────────────────────────────── */
+
+function renderBodyWithMentions(body: string) {
+  const parts = body.split(/(@\w+)/g);
+  return parts.map((p, i) =>
+    p.startsWith("@") ? (
+      <span key={i} className="bg-primary/15 text-primary px-0.5 rounded font-medium">{p}</span>
+    ) : (
+      <span key={i}>{p}</span>
+    )
+  );
+}
+
+function CommentBlock({
+  comment,
+  replies,
+  isPending: parentPending,
+  trackedSave,
+  onUpdate,
+  onReply,
+}: {
+  comment: IssueComment;
+  replies: IssueComment[];
+  isPending: boolean;
+  trackedSave: <T>(action: () => Promise<T>) => Promise<T | undefined>;
+  onUpdate: () => void;
+  onReply: () => void;
+}) {
+  const [deletePending, startTransition] = useTransition();
+  const isPending = parentPending || deletePending;
+  return (
+    <div className="flex gap-2 group">
+      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0 mt-0.5">
+        {comment.authorName ? comment.authorName.slice(0, 2).toUpperCase() : "??"}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-xs font-semibold">{comment.authorName || "Anonymous"}</span>
+          <span className="text-[10px] text-muted-foreground">
+            {new Date(comment.createdAt).toLocaleString()}
+          </span>
+          {comment.mentions && comment.mentions.length > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              → @{comment.mentions.map((m) => m.person.initials || m.person.name).join(", ")}
+            </span>
+          )}
+          <button
+            type="button"
+            className="text-[10px] text-primary hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+            disabled={isPending}
+            onClick={(e) => { e.stopPropagation(); onReply(); }}
+          >
+            Reply
+          </button>
+          <button
+            className="text-[10px] text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+            disabled={isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm("Delete this comment?")) {
+                startTransition(async () => {
+                  await trackedSave(() => deleteIssueComment(comment.id));
+                  onUpdate();
+                });
+              }
+            }}
+          >
+            &times;
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-0.5">
+          {renderBodyWithMentions(comment.body)}
+        </p>
+        {replies.length > 0 && (
+          <div className="mt-2 ml-4 pl-3 border-l-2 border-muted space-y-2">
+            {replies.map((r) => (
+              <CommentBlock
+                key={r.id}
+                comment={r}
+                replies={[]}
+                isPending={isPending}
+                trackedSave={trackedSave}
+                onUpdate={onUpdate}
+                onReply={onReply}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Issue Card ──────────────────────────────────────── */
 
 function IssueCard({
@@ -392,6 +638,7 @@ function IssueCard({
   // Comment state
   const [commentText, setCommentText] = useState("");
   const [commentAuthor, setCommentAuthor] = useState("");
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
 
   // Mention dropdown state
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
@@ -446,16 +693,20 @@ function IssueCard({
   const cfg = SEVERITY_CONFIG[issue.severity] || SEVERITY_CONFIG.NOT_A_CONCERN;
   const isResolved = !!issue.resolvedAt;
   const commentCount = issue.comments?.length || 0;
+  const topLevelComments = (issue.comments || []).filter((c) => !c.parentId);
+  const getReplies = (parentId: string) => (issue.comments || []).filter((c) => c.parentId === parentId);
 
   function handleAddComment() {
     if (!commentText.trim()) return;
     startTransition(async () => {
       await trackedSave(() => addIssueComment({
         issueId: issue.id,
+        parentId: replyingToId,
         body: commentText.trim(),
         authorName: commentAuthor.trim() || null,
       }));
       setCommentText("");
+      setReplyingToId(null);
       onUpdate();
     });
   }
@@ -498,6 +749,13 @@ function IssueCard({
                   )}
                 </span>
               )}
+              <span>
+                Assigned: <strong className="text-foreground">
+                  {(issue.assignees ?? []).length > 0
+                    ? (issue.assignees ?? []).map((a) => a.person.initials ? `${a.person.initials} (${a.person.name})` : a.person.name).join(", ")
+                    : "—"}
+                </strong>
+              </span>
               <span>{new Date(issue.createdAt).toLocaleDateString()}</span>
             </div>
           </div>
@@ -507,6 +765,52 @@ function IssueCard({
 
       {expanded && (
         <div className="border-t p-4 space-y-4 bg-background">
+          {/* Assignees (multi) */}
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Assigned to</label>
+            <div className="flex flex-wrap gap-2 items-center">
+              {(issue.assignees ?? []).map((a) => (
+                <Badge key={a.person.id} variant="secondary" className="text-[10px]">
+                  {a.person.initials ? `${a.person.initials} (${a.person.name})` : a.person.name}
+                  <button
+                    type="button"
+                    className="ml-1 opacity-70 hover:opacity-100"
+                    disabled={isPending}
+                    onClick={() => {
+                      const next = (issue.assignees ?? []).filter((x) => x.person.id !== a.person.id).map((x) => x.person.id);
+                      startTransition(async () => {
+                        await trackedSave(() => setIssueAssignees(issue.id, next));
+                        onUpdate();
+                      });
+                    }}
+                  >
+                    ×
+                  </button>
+                </Badge>
+              ))}
+              <select
+                className="rounded-md border px-2 py-1 text-xs bg-background"
+                value=""
+                onChange={(e) => {
+                  const personId = e.target.value;
+                  e.target.value = "";
+                  if (!personId) return;
+                  const currentIds = (issue.assignees ?? []).map((a) => a.person.id);
+                  if (currentIds.includes(personId)) return;
+                  startTransition(async () => {
+                    await trackedSave(() => setIssueAssignees(issue.id, [...currentIds, personId]));
+                    onUpdate();
+                  });
+                }}
+              >
+                <option value="">+ Add assignee</option>
+                {people.filter((p) => !(issue.assignees ?? []).some((a) => a.person.id === p.id)).map((p) => (
+                  <option key={p.id} value={p.id}>{p.initials ? `${p.initials} — ${p.name}` : p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {/* Description */}
           {issue.description && !editing && (
             <p className="text-sm text-muted-foreground whitespace-pre-wrap">{issue.description}</p>
@@ -582,50 +886,32 @@ function IssueCard({
             </div>
           )}
 
-          {/* ── Comment Thread ── */}
+          {/* ── Comment Thread (cascading) ── */}
           <div className="space-y-3">
             <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
               💬 Comments {commentCount > 0 && <span>({commentCount})</span>}
             </h4>
 
-            {/* Existing comments */}
-            {issue.comments && issue.comments.length > 0 ? (
+            {topLevelComments.length > 0 ? (
               <div className="space-y-2 max-h-72 overflow-y-auto">
-                {issue.comments.map((c) => (
-                  <div key={c.id} className="flex gap-2 group">
-                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0 mt-0.5">
-                      {c.authorName ? c.authorName.slice(0, 2).toUpperCase() : "??"}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-xs font-semibold">{c.authorName || "Anonymous"}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {new Date(c.createdAt).toLocaleString()}
-                        </span>
-                        <button
-                          className="text-[10px] text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
-                          disabled={isPending}
-                          onClick={() => {
-                            if (confirm("Delete this comment?")) {
-                              startTransition(async () => {
-                                await trackedSave(() => deleteIssueComment(c.id));
-                                onUpdate();
-                              });
-                            }
-                          }}
-                        >
-                          &times;
-                        </button>
-                      </div>
-                      <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-0.5">
-                        {renderCommentBody(c.body)}
-                      </p>
-                    </div>
-                  </div>
+                {topLevelComments.map((c) => (
+                  <CommentBlock
+                    key={c.id}
+                    comment={c}
+                    replies={getReplies(c.id)}
+                    isPending={isPending}
+                    trackedSave={trackedSave}
+                    onUpdate={onUpdate}
+                    onReply={() => setReplyingToId(c.id)}
+                  />
                 ))}
               </div>
             ) : (
               <p className="text-xs text-muted-foreground italic">No comments yet.</p>
+            )}
+
+            {replyingToId && (
+              <p className="text-[10px] text-primary">Replying to comment — your message will be nested below it.</p>
             )}
 
             {/* Add comment form */}
@@ -638,44 +924,25 @@ function IssueCard({
                     value={commentAuthor}
                     onChange={(e) => setCommentAuthor(e.target.value)}
                   />
-                </div>
-                <div className="relative">
-                  <textarea
-                    ref={commentTextareaRef}
-                    className="w-full rounded-md border px-2.5 py-1.5 text-sm bg-background min-h-[50px] resize-y"
-                    placeholder="Add a comment or update... Use @name to mention someone"
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    onKeyUp={handleCommentKeyUp}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                        handleAddComment();
-                      }
-                      if (e.key === "Escape") {
-                        setShowMentionDropdown(false);
-                      }
-                    }}
-                  />
-                  {/* Mention dropdown */}
-                  {showMentionDropdown && filteredPeople.length > 0 && (
-                    <div className="absolute left-0 bottom-full mb-1 w-64 max-h-40 overflow-y-auto bg-background border rounded-lg shadow-lg z-50">
-                      {filteredPeople.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent/50 flex items-center gap-2"
-                          onMouseDown={(e) => { e.preventDefault(); insertMention(p); }}
-                        >
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold">
-                            {p.initials || p.name.slice(0, 2).toUpperCase()}
-                          </span>
-                          <span>{p.name}</span>
-                          {p.initials && <span className="text-xs text-muted-foreground">({p.initials})</span>}
-                        </button>
-                      ))}
-                    </div>
+                  {replyingToId && (
+                    <Button type="button" variant="ghost" size="sm" className="text-[10px] h-7" onClick={() => setReplyingToId(null)}>
+                      Cancel reply
+                    </Button>
                   )}
                 </div>
+                <CommentTextareaWithMentions
+                  className="w-full rounded-md border px-2.5 py-1.5 text-sm bg-background min-h-[50px] resize-y"
+                  placeholder="Add a comment... Type @ for suggestions to notify someone."
+                  value={commentText}
+                  onChange={setCommentText}
+                  people={people}
+                  disabled={isPending}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      handleAddComment();
+                    }
+                  }}
+                />
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"

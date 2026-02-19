@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import { notFound } from "next/navigation";
 import WorkstreamView from "./workstream-view";
 
@@ -58,11 +59,11 @@ export default async function WorkstreamDetailPage({
   });
 
   // Serialize for client
-  const serialized = JSON.parse(JSON.stringify(ws));
-  const serializedPeople = JSON.parse(JSON.stringify(people));
-  const serializedIssues = JSON.parse(JSON.stringify(openIssues));
-  const serializedUsers = JSON.parse(JSON.stringify(users));
-  const serializedSnapshots = JSON.parse(JSON.stringify(burnSnapshots));
+  const serialized = serializeForClient(ws);
+  const serializedPeople = serializeForClient(people);
+  const serializedIssues = serializeForClient(openIssues);
+  const serializedUsers = serializeForClient(users);
+  const serializedSnapshots = serializeForClient(burnSnapshots);
 
   return (
     <WorkstreamView

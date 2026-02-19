@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import PeopleView from "./people-view";
 
 export const dynamic = "force-dynamic";
@@ -8,5 +9,5 @@ export default async function PeoplePage() {
     orderBy: { name: "asc" },
   });
 
-  return <PeopleView people={JSON.parse(JSON.stringify(people))} />;
+  return <PeopleView people={serializeForClient(people)} />;
 }

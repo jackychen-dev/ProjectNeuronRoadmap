@@ -25,7 +25,10 @@ export async function createSubTask(data: unknown) {
       estimatedDays: parsed.estimatedDays ?? null,
       unknowns: parsed.unknowns || null,
       integration: parsed.integration || null,
-    },
+      ...(typeof parsed.assignedOrganization !== "undefined" && {
+        assignedOrganization: parsed.assignedOrganization ?? null,
+      }),
+    } as Parameters<typeof prisma.subTask.create>[0]["data"],
   });
   revalidatePath("/workstreams");
   return subTask;
@@ -41,13 +44,29 @@ export async function updateSubTask(id: string, data: Partial<{
   estimatedDays: number | null;
   unknowns: string | null;
   integration: string | null;
+  assignedOrganization: string | null;
 }>) {
-  const subTask = await prisma.subTask.update({
-    where: { id },
-    data,
-  });
-  revalidatePath("/workstreams");
-  return subTask;
+  try {
+    const subTask = await prisma.subTask.update({
+      where: { id },
+      data,
+    });
+    revalidatePath("/workstreams");
+    return subTask;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Unknown arg") && msg.includes("assignedOrganization")) {
+      throw new Error(
+        "Assigned organization not in Prisma client. In project root run: npx prisma generate"
+      );
+    }
+    if ((msg.includes("assignedOrganization") || msg.includes("column")) && msg.includes("exist")) {
+      throw new Error(
+        "Assigned organization column missing in DB. Run: npx prisma db push"
+      );
+    }
+    throw err;
+  }
 }
 
 export async function updateSubTaskCompletion(id: string, completionPercent: number) {

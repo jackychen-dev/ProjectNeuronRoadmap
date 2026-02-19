@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { updateInitiativeField } from "@/lib/actions/initiatives";
+import { updateInitiativeField, updateInitiativeOwner } from "@/lib/actions/initiatives";
 import { createSubTask, updateSubTaskCompletion, updateSubTask, updateSubTaskEstimation, deleteSubTask, toggleSubTaskAddedScope, updateSubTaskAssignee } from "@/lib/actions/subtasks";
 import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
 import { getCurrentPeriod, getMonthlyPeriods } from "@/lib/burn-periods";
@@ -38,6 +38,7 @@ interface SubTask {
   integration: string | null;
   isAddedScope: boolean;
   assigneeId: string | null;
+  assignedOrganization?: "ECLIPSE" | "ACCENTURE" | null;
 }
 
 interface Initiative {
@@ -63,6 +64,7 @@ interface Person {
   id: string;
   name: string;
   initials: string | null;
+  userId?: string | null;
 }
 
 interface OpenIssueSummary {
@@ -327,16 +329,16 @@ export default function WorkstreamView({
       </div>
 
       {/* ── Monthly Save Progress ──────────────────── */}
-      <Card className="border-blue-200 bg-blue-50/30">
-        <CardContent className="pt-5 pb-4 space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div>
+      <Card className="border-blue-200 bg-blue-50/30 overflow-visible">
+        <CardContent className="pt-5 pb-4 space-y-3 min-w-0">
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="min-w-0 flex-1">
               <p className="font-semibold text-sm">Save Progress — Monthly Snapshots</p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Select a month to view status. You can only save to the <strong>current month</strong>.
               </p>
             </div>
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex flex-shrink-0 items-center gap-3">
               {(periodSaved || savedPeriods.has(currentPeriod.dateKey)) && (
                 <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700">Month Saved</Badge>
               )}
@@ -351,10 +353,10 @@ export default function WorkstreamView({
             </div>
           </div>
           {/* ── Month Dropdown ── */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <label className="text-xs font-semibold text-muted-foreground">Month:</label>
-            <Select
-              className="h-8 text-sm w-64"
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <label className="text-xs font-semibold text-muted-foreground shrink-0">Month:</label>
+            <select
+              className="h-8 text-sm w-full sm:w-80 md:w-96 border rounded px-2 bg-background"
               value={selectedPeriodKey}
               onChange={(e) => setSelectedPeriodKey(e.target.value)}
             >
@@ -363,11 +365,13 @@ export default function WorkstreamView({
                 const isSaved = savedPeriods.has(p.dateKey);
                 return (
                   <option key={p.dateKey} value={p.dateKey}>
-                    {p.label}{isCurr ? " (current)" : ""}{isSaved ? " ✓" : ""}
+                    {p.label}
+                    {isCurr ? " (current)" : ""}
+                    {isSaved ? " ✓" : ""}
                   </option>
                 );
               })}
-            </Select>
+            </select>
             {selectedPeriodKey !== currentPeriod.dateKey && (
               <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300">
                 Past/future month — read-only
@@ -531,46 +535,25 @@ export default function WorkstreamView({
 
                   {/* ── Editable Fields Row ── */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {/* Owner */}
+                    {/* Owner (people tag) — sets both owner label and linked user for dashboard */}
                     <div>
                       <label className="text-xs font-semibold text-muted-foreground block mb-1">Owner</label>
                       <Select
                         className="h-8 text-xs"
-                        defaultValue={init.ownerInitials || ""}
+                        defaultValue={people.find(p => p.initials === init.ownerInitials || p.name === init.ownerInitials)?.id ?? "__none"}
                         onChange={(e) => {
-                          const val = e.target.value;
+                          const personId = e.target.value === "__none" ? null : e.target.value;
                           startTransition(async () => {
-                            await trackedSave(() => updateInitiativeField(init.id, "ownerInitials", val === "__none" ? null : val));
+                            await trackedSave(() => updateInitiativeOwner(init.id, personId));
                             refresh();
                           });
                         }}
                       >
                         <option value="__none">Unassigned</option>
                         {people.map((p) => (
-                          <option key={p.id} value={p.initials || p.name}>
+                          <option key={p.id} value={p.id}>
                             {p.initials ? `${p.initials} — ${p.name}` : p.name}
                           </option>
-                        ))}
-                      </Select>
-                    </div>
-
-                    {/* Assigned User */}
-                    <div>
-                      <label className="text-xs font-semibold text-muted-foreground block mb-1">Assigned User</label>
-                      <Select
-                        className="h-8 text-xs"
-                        defaultValue={init.ownerId || "__none"}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          startTransition(async () => {
-                            await trackedSave(() => updateInitiativeField(init.id, "ownerId", val === "__none" ? null : val));
-                            refresh();
-                          });
-                        }}
-                      >
-                        <option value="__none">Unassigned</option>
-                        {(users || []).map((u) => (
-                          <option key={u.id} value={u.id}>{u.name || u.email}</option>
                         ))}
                       </Select>
                     </div>
@@ -726,9 +709,10 @@ export default function WorkstreamView({
 
                     {/* Sub-task column headers */}
                     {init.subTasks.length > 0 && (
-                      <div className="grid grid-cols-[1fr_70px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
+                      <div className="grid grid-cols-[1fr_70px_90px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
                         <span>Name</span>
                         <span>Assignee</span>
+                        <span>Assigned Org</span>
                         <span>Days</span>
                         <span>Unknowns</span>
                         <span>Integration</span>
@@ -850,7 +834,7 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
       st.isAddedScope ? "border-purple-300 bg-purple-50/50 dark:bg-purple-950/10" :
       "hover:bg-accent/20"
     }`}>
-      <div className="grid grid-cols-[1fr_70px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 items-center">
+      <div className="grid grid-cols-[1fr_70px_90px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 items-center">
         {/* Name + Added Scope badge */}
         <div className="min-w-0">
           {editing ? (
@@ -929,6 +913,24 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
           {people.map((p) => (
             <option key={p.id} value={p.id}>{p.initials || p.name}</option>
           ))}
+        </select>
+
+        {/* Assigned Organization — same pattern as Assignee: updateSubTask with one field */}
+        <select
+          className="h-5 text-[9px] border rounded px-0.5 bg-background truncate"
+          value={st.assignedOrganization ?? "__none"}
+          onChange={(e) => {
+            const val = e.target.value;
+            const org = val === "__none" ? null : (val as "ECLIPSE" | "ACCENTURE");
+            startTransition(async () => {
+              await trackedSave(() => updateSubTask(st.id, { assignedOrganization: org }));
+              onUpdate();
+            });
+          }}
+        >
+          <option value="__none">—</option>
+          <option value="ECLIPSE">Eclipse</option>
+          <option value="ACCENTURE">Accenture</option>
         </select>
 
         {/* Estimated Days */}

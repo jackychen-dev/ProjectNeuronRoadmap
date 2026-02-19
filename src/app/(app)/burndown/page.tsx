@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import BurndownView from "./burndown-view";
 
 export const dynamic = "force-dynamic";
@@ -44,9 +45,9 @@ export default async function BurndownPage() {
 
   return (
     <BurndownView
-      programs={JSON.parse(JSON.stringify(programs))}
-      workstreams={JSON.parse(JSON.stringify(workstreams))}
-      snapshots={JSON.parse(JSON.stringify(snapshots))}
+      programs={serializeForClient(programs)}
+      workstreams={serializeForClient(workstreams)}
+      snapshots={serializeForClient(snapshots)}
     />
   );
 }

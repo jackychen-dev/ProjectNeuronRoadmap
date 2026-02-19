@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -16,16 +17,32 @@ export default async function MyDashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/auth/signin");
 
-  const userId = (session.user as { id?: string; role?: string }).id;
+  let userId = (session.user as { id?: string; role?: string }).id;
+  if (!userId && (session.user as { email?: string }).email) {
+    const u = await prisma.user.findUnique({
+      where: { email: (session.user as { email: string }).email },
+      select: { id: true },
+    });
+    if (u) userId = u.id;
+  }
   const isAdmin = (session.user as { role?: string }).role === "ADMIN";
   if (!userId) redirect("/auth/signin");
 
-  // Find the Person linked to this user
-  const person = await prisma.person.findUnique({ where: { userId } });
+  // Find the Person linked to this user (required for "assigned to me" to work)
+  let person = await prisma.person.findUnique({ where: { userId } });
+  const personLinkedByAdmin = !!person;
+  if (!person && (session.user.name || (session.user as { email?: string }).email)) {
+    const displayName = (session.user.name || (session.user as { email?: string }).email || "").trim();
+    if (displayName) {
+      const byName = await prisma.person.findMany({
+        where: { name: { equals: displayName, mode: "insensitive" } },
+      });
+      if (byName.length === 1) person = byName[0];
+    }
+  }
 
-  // ── Batch 1: independent queries that only need userId / person.id ──
+  // ── Batch 1: initiatives, subtasks, mentions, people, seen ──
   const [myInitiatives, mySubTasks, myMentions, allPeople, seen] = await Promise.all([
-    // Initiatives owned by user OR containing subtasks assigned to this person
     prisma.initiative.findMany({
       where: {
         archivedAt: null,
@@ -45,7 +62,6 @@ export default async function MyDashboardPage() {
       },
       orderBy: { sortOrder: "asc" },
     }),
-    // Subtasks assigned to this person
     person ? prisma.subTask.findMany({
       where: { assigneeId: person.id },
       include: {
@@ -59,31 +75,22 @@ export default async function MyDashboardPage() {
       },
       orderBy: [{ initiative: { workstream: { sortOrder: "asc" } } }, { initiative: { sortOrder: "asc" } }, { sortOrder: "asc" }],
     }) : Promise.resolve([]),
-    // Mentions where this person was @mentioned
     person ? getMentionsForPerson(person.id) : Promise.resolve([]),
-    // All people for mention autocomplete
     prisma.person.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, initials: true },
     }),
-    // Issue seen tracking
     prisma.userIssueSeen.findMany({
       where: { userId },
       select: { issueId: true, lastSeenAt: true },
     }),
   ]);
 
-  const seenMap = new Map(seen.map(s => [s.issueId, s.lastSeenAt]));
-  const unseenMentionCount = myMentions.filter((m: any) => !m.seenAt).length;
-
-  // Collect unique workstream & subcomponent IDs from subtasks
   const myWsIds = [...new Set(mySubTasks.map((st: any) => st.initiative.workstream.id))];
   const myInitIds = [...new Set(mySubTasks.map((st: any) => st.initiative.id))];
   const myProgramIds = [...new Set(mySubTasks.map((st: any) => st.initiative.workstream.programId))];
 
-  // ── Batch 2: queries that depend on subtask results ──
-  const [myWorkstreamsForBurn, mySnapshots, myPrograms, myIssues] = await Promise.all([
-    // Workstreams for live burndown calcs
+  const [myWorkstreamsForBurn, mySnapshots, myPrograms, myIssuesResult] = await Promise.all([
     myWsIds.length > 0 ? prisma.workstream.findMany({
       where: { id: { in: myWsIds } },
       include: {
@@ -93,37 +100,63 @@ export default async function MyDashboardPage() {
         },
       },
     }) : Promise.resolve([]),
-    // Snapshots for relevant programs
     myProgramIds.length > 0 ? prisma.burnSnapshot.findMany({
       where: { programId: { in: myProgramIds } },
       orderBy: { date: "asc" },
       select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true, workstreamData: true },
     }) : Promise.resolve([]),
-    // Programs for timeline info
     myProgramIds.length > 0 ? prisma.program.findMany({
       where: { id: { in: myProgramIds } },
       select: { id: true, name: true, fyStartYear: true, fyEndYear: true, startDate: true, targetDate: true },
     }) : Promise.resolve([]),
-    // Issues related to user's owned initiatives OR assigned subtasks
-    prisma.openIssue.findMany({
-      where: {
-        resolvedAt: null,
-        OR: [
-          { subTask: { initiative: { ownerId: userId } } },
-          ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
-          ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
-        ],
-      },
-      include: {
-        workstream: { select: { name: true } },
-        subTask: { select: { name: true, assigneeId: true } },
-        comments: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
+    (async () => {
+      try {
+        return await prisma.openIssue.findMany({
+          where: {
+            resolvedAt: null,
+            OR: [
+              { subTask: { initiative: { ownerId: userId } } },
+              ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
+              ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
+              ...(person ? [{ assignees: { some: { personId: person.id } } }] : []),
+              ...(person ? [{ comments: { some: { mentions: { some: { personId: person.id } } } } }] : []),
+            ],
+          },
+          include: {
+            workstream: { select: { name: true } },
+            subTask: { select: { name: true } },
+            assignees: { include: { person: { select: { name: true, initials: true } } } },
+            comments: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+        });
+      } catch {
+        return await prisma.openIssue.findMany({
+          where: {
+            resolvedAt: null,
+            OR: [
+              { subTask: { initiative: { ownerId: userId } } },
+              ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
+              ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
+            ],
+          },
+          include: {
+            workstream: { select: { name: true } },
+            subTask: { select: { name: true } },
+            comments: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+        });
+      }
+    })(),
   ]);
-  
+
+  const myIssues = myIssuesResult;
+  const seenMap = new Map(seen.map(s => [s.issueId, s.lastSeenAt]));
+  const unseenMentionCount = myMentions.filter((m: any) => !m.seenAt).length;
+
   let newReplyCount = 0;
   for (const issue of myIssues) {
     if (issue.comments.length > 0) {
@@ -166,6 +199,26 @@ export default async function MyDashboardPage() {
           {isAdmin && <Badge variant="secondary" className="ml-2 text-[10px]">Admin</Badge>}
         </p>
       </div>
+
+      {!person && (
+        <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+          <CardContent className="py-3">
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              <strong>Assigned tasks are hidden</strong> because your login is not linked to a team member. Ask an admin to link your account in <Link href="/admin" className="underline">Admin → Users</Link> (Linked Person) so subtasks assigned to you appear here.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {person && !personLinkedByAdmin && (
+        <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
+          <CardContent className="py-2">
+            <p className="text-xs text-blue-800 dark:text-blue-200">
+              Showing tasks for <strong>{person.name}</strong> (matched by name). For reliable assignment, ask an admin to link your account in <Link href="/admin" className="underline">Admin → Users</Link>.
+            </p>
+          </CardContent>
+        </Card>
+      )}
       
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
@@ -287,14 +340,14 @@ export default async function MyDashboardPage() {
       </Card>
       
       {/* My Assigned Subtasks — editable inline */}
-      <MySubtasksList subtasks={JSON.parse(JSON.stringify(mySubTasks))} />
+      <MySubtasksList subtasks={serializeForClient(mySubTasks)} />
 
       {/* Burndown charts for my assigned workstreams/subcomponents */}
       {myWsIds.length > 0 && (
         <MyBurndownCharts
-          programs={JSON.parse(JSON.stringify(myPrograms))}
-          workstreams={JSON.parse(JSON.stringify(myWorkstreamsForBurn))}
-          snapshots={JSON.parse(JSON.stringify(mySnapshots))}
+          programs={serializeForClient(myPrograms)}
+          workstreams={serializeForClient(myWorkstreamsForBurn)}
+          snapshots={serializeForClient(mySnapshots)}
           myWsIds={myWsIds}
           myInitIds={myInitIds}
         />
@@ -302,8 +355,8 @@ export default async function MyDashboardPage() {
 
       {/* Mentions tab */}
       <MyMentions
-        mentions={JSON.parse(JSON.stringify(myMentions))}
-        people={JSON.parse(JSON.stringify(allPeople))}
+        mentions={serializeForClient(myMentions)}
+        people={serializeForClient(allPeople)}
       />
 
       {/* Recent Issues */}

@@ -34,6 +34,7 @@ export async function getAllIssues(workstreamId?: string, includeResolved = fals
 
 export async function createOpenIssue(data: unknown) {
   const parsed = openIssueSchema.parse(data);
+  const assigneeIds = parsed.assigneeIds ?? [];
   const issue = await prisma.openIssue.create({
     data: {
       workstreamId: parsed.workstreamId,
@@ -42,10 +43,14 @@ export async function createOpenIssue(data: unknown) {
       description: parsed.description || null,
       severity: parsed.severity || "NOT_A_CONCERN",
       screenshotUrl: parsed.screenshotUrl || null,
+      assignees: assigneeIds.length
+        ? { create: assigneeIds.map((personId) => ({ personId })) }
+        : undefined,
     },
   });
   revalidatePath("/open-issues");
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
   return issue;
 }
 
@@ -65,7 +70,21 @@ export async function updateOpenIssue(
   });
   revalidatePath("/open-issues");
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
   return issue;
+}
+
+/** Set full list of assignees for an issue (replaces existing). */
+export async function setIssueAssignees(issueId: string, personIds: string[]) {
+  await prisma.openIssueAssignee.deleteMany({ where: { issueId } });
+  if (personIds.length > 0) {
+    await prisma.openIssueAssignee.createMany({
+      data: personIds.map((personId) => ({ issueId, personId })),
+      skipDuplicates: true,
+    });
+  }
+  revalidatePath("/open-issues");
+  revalidatePath("/my-dashboard");
 }
 
 export async function resolveOpenIssue(id: string) {
@@ -75,6 +94,7 @@ export async function resolveOpenIssue(id: string) {
   });
   revalidatePath("/open-issues");
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
   return issue;
 }
 
@@ -85,6 +105,7 @@ export async function reopenIssue(id: string) {
   });
   revalidatePath("/open-issues");
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
   return issue;
 }
 
@@ -103,54 +124,45 @@ export async function getIssueComments(issueId: string) {
   });
 }
 
+/** Parse @mentions from body: @JC or @John -> match Person by initials or name */
+function parseMentionedPersonIds(body: string, people: { id: string; initials: string | null; name: string }[]): string[] {
+  const tokens = body.match(/@(\w+)/g) || [];
+  const ids = new Set<string>();
+  for (const t of tokens) {
+    const part = t.slice(1).trim().toUpperCase();
+    if (!part) continue;
+    for (const p of people) {
+      const matchInitials = p.initials && p.initials.toUpperCase() === part;
+      const matchName = p.name.toUpperCase().includes(part) || (p.initials && p.name.toUpperCase().startsWith(part));
+      if (matchInitials || matchName) ids.add(p.id);
+    }
+  }
+  return [...ids];
+}
+
 export async function addIssueComment(data: unknown) {
   const parsed = issueCommentSchema.parse(data);
+  const people = await prisma.person.findMany({ select: { id: true, initials: true, name: true } });
+  const mentionedIds = parseMentionedPersonIds(parsed.body, people);
+
   const comment = await prisma.issueComment.create({
     data: {
       issueId: parsed.issueId,
+      parentId: parsed.parentId ?? null,
       body: parsed.body,
       authorName: parsed.authorName || null,
     },
   });
 
-  // Parse @mentions from comment body (e.g. @John Doe or @JD)
-  const mentionPattern = /@([A-Za-z][A-Za-z\s]*?)(?=\s@|[.,!?\s]*$|[.,!?]\s)/g;
-  const mentionNames: string[] = [];
-  let match;
-  while ((match = mentionPattern.exec(parsed.body)) !== null) {
-    mentionNames.push(match[1].trim());
-  }
-
-  if (mentionNames.length > 0) {
-    // Find people matching mentioned names (case-insensitive) or initials
-    const allPeople = await prisma.person.findMany({
-      select: { id: true, name: true, initials: true },
+  for (const personId of mentionedIds) {
+    await prisma.issueCommentMention.upsert({
+      where: { commentId_personId: { commentId: comment.id, personId } },
+      create: { commentId: comment.id, personId },
+      update: {},
     });
-
-    const mentionedPeople = new Set<string>();
-    for (const mName of mentionNames) {
-      const lower = mName.toLowerCase();
-      for (const p of allPeople) {
-        if (
-          p.name.toLowerCase() === lower ||
-          p.initials?.toLowerCase() === lower ||
-          p.name.toLowerCase().startsWith(lower)
-        ) {
-          mentionedPeople.add(p.id);
-        }
-      }
-    }
-
-    // Create mention records
-    for (const personId of mentionedPeople) {
-      await prisma.issueMention.create({
-        data: {
-          issueId: parsed.issueId,
-          commentId: comment.id,
-          personId,
-        },
-      });
-    }
+    await prisma.issueMention.create({
+      data: { issueId: parsed.issueId, commentId: comment.id, personId },
+    }).catch(() => {}); // ignore duplicate if any
   }
 
   revalidatePath("/open-issues");

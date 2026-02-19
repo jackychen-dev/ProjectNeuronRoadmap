@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import { DeliverablesTable } from "./deliverables-table";
 
 export const dynamic = "force-dynamic";
@@ -25,8 +26,8 @@ export default async function DeliverablesPage() {
         </div>
       </div>
       <DeliverablesTable
-        initiatives={JSON.parse(JSON.stringify(initiatives))}
-        workstreams={JSON.parse(JSON.stringify(workstreams))}
+        initiatives={serializeForClient(initiatives)}
+        workstreams={serializeForClient(workstreams)}
       />
     </div>
   );

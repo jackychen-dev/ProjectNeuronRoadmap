@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import { PartnersView } from "./partners-view";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function PartnersPage() {
           Key technology, research, and industry partners driving Project Neuron
         </p>
       </div>
-      <PartnersView partners={JSON.parse(JSON.stringify(partners))} />
+      <PartnersView partners={serializeForClient(partners)} />
     </div>
   );
 }

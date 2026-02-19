@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import { AdminView } from "./admin-view";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +23,9 @@ export default async function AdminPage() {
 
   return (
     <AdminView
-      users={JSON.parse(JSON.stringify(users))}
-      people={JSON.parse(JSON.stringify(people))}
-      refinementInitiatives={JSON.parse(JSON.stringify(needsRefinement))}
+    users={serializeForClient(users)}
+    people={serializeForClient(people)}
+    refinementInitiatives={serializeForClient(needsRefinement)}
     />
   );
 }

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,13 +46,60 @@ async function loadDashboardData() {
         id: true, targetCompletionDate: true,
         initiatives: {
           where: { archivedAt: null },
+          select: {
+            subTasks: {
+              select: {
+                points: true,
+                completionPercent: true,
+                isAddedScope: true,
+                assignedOrganization: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.burnSnapshot.findMany({
+      orderBy: [{ programId: "asc" }, { date: "asc" }],
+      select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true, workstreamData: true },
+    }),
+  ]);
+}
+
+async function loadDashboardDataFallback() {
+  return Promise.all([
+    prisma.program.findFirst({ include: { workstreams: { orderBy: { sortOrder: "asc" } } } }),
+    prisma.initiative.findMany({
+      where: { archivedAt: null },
+      include: {
+        workstream: true,
+        subTasks: { select: { id: true, points: true, completionPercent: true } },
+      },
+    }),
+    prisma.milestone.findMany({ orderBy: { date: "asc" } }),
+    prisma.partner.findMany(),
+    prisma.openIssue.findMany({
+      where: { resolvedAt: null },
+      select: { id: true, severity: true, workstreamId: true, title: true },
+    }),
+    prisma.program.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true, fyStartYear: true, fyEndYear: true, startDate: true, targetDate: true },
+    }),
+    prisma.workstream.findMany({
+      orderBy: { sortOrder: "asc" },
+      select: {
+        id: true,
+        targetCompletionDate: true,
+        initiatives: {
+          where: { archivedAt: null },
           select: { subTasks: { select: { points: true, completionPercent: true } } },
         },
       },
     }),
     prisma.burnSnapshot.findMany({
       orderBy: [{ programId: "asc" }, { date: "asc" }],
-      select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true },
+      select: { id: true, programId: true, date: true, totalPoints: true, completedPoints: true, percentComplete: true, workstreamData: true },
     }),
   ]);
 }
@@ -60,9 +108,13 @@ export default async function DashboardPage() {
   let data: Awaited<ReturnType<typeof loadDashboardData>>;
   try {
     data = await loadDashboardData();
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    throw new Error(`Dashboard data load failed: ${err.message}`, { cause: err });
+  } catch {
+    try {
+      data = await loadDashboardDataFallback();
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      throw new Error(`Dashboard data load failed: ${err.message}`, { cause: err });
+    }
   }
 
   const [program, initiatives, milestones, partners, openIssues, burnPrograms, burnWorkstreams, burnSnapshots] = data;
@@ -314,9 +366,9 @@ export default async function DashboardPage() {
 
       {/* ── Overall Burndown Chart ── */}
       <OverallBurndownChart
-        programs={JSON.parse(JSON.stringify(burnPrograms ?? []))}
-        workstreams={JSON.parse(JSON.stringify(burnWorkstreams ?? []))}
-        snapshots={JSON.parse(JSON.stringify(burnSnapshots ?? []))}
+        programs={serializeForClient(burnPrograms ?? [])}
+        workstreams={serializeForClient(burnWorkstreams ?? [])}
+        snapshots={serializeForClient(burnSnapshots ?? [])}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { serializeForClient } from "@/lib/serialize";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import DocsView from "./docs-view";
@@ -30,10 +31,10 @@ export default async function DocsPage() {
 
   return (
     <DocsView
-      docs={JSON.parse(JSON.stringify(docs))}
-      programs={JSON.parse(JSON.stringify(programs))}
-      workstreams={JSON.parse(JSON.stringify(workstreams))}
-      initiatives={JSON.parse(JSON.stringify(initiatives))}
+      docs={serializeForClient(docs)}
+      programs={serializeForClient(programs)}
+      workstreams={serializeForClient(workstreams)}
+      initiatives={serializeForClient(initiatives)}
       userId={userId}
     />
   );

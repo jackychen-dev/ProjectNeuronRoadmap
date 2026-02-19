@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || "development-secret-change-in-production",
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -42,6 +42,17 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = (user as any).role;
         token.id = user.id;
+      }
+      // Ensure token has user id (e.g. after linking in Admin or old JWTs that never had id)
+      if (!token.id && token.email) {
+        const u = await prisma.user.findUnique({
+          where: { email: token.email as string },
+          select: { id: true, role: true },
+        });
+        if (u) {
+          token.id = u.id;
+          token.role = u.role;
+        }
       }
       return token;
     },

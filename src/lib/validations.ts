@@ -29,6 +29,7 @@ export const subTaskSchema = z.object({
   estimatedDays: z.coerce.number().min(0).optional().nullable(),
   unknowns: z.string().optional().nullable(),
   integration: z.string().optional().nullable(),
+  assignedOrganization: z.enum(["ECLIPSE", "ACCENTURE"]).optional().nullable(),
 });
 
 // ─── Workstream ────────────────────────────────
@@ -108,11 +109,13 @@ export const openIssueSchema = z.object({
   description: z.string().optional().nullable(),
   severity: z.enum(["STOPPING", "SLOWING", "NOT_A_CONCERN"]).optional(),
   screenshotUrl: z.string().optional().nullable(),
+  assigneeIds: z.array(z.string()).optional(),
 });
 
 // ─── Issue Comment ──────────────────────────────
 export const issueCommentSchema = z.object({
   issueId: z.string().min(1, "Issue is required"),
+  parentId: z.string().optional().nullable(),
   body: z.string().min(1, "Comment cannot be empty"),
   authorName: z.string().optional().nullable(),
 });

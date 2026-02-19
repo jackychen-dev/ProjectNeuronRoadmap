@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
-import { getCurrentPeriod, getMonthlyPeriods, parseTargetMonth, type BurnPeriod } from "@/lib/burn-periods";
+import { getCurrentPeriod, getMonthlyPeriods, type BurnPeriod } from "@/lib/burn-periods";
+import { buildTimeline, buildChartData, type ChartPoint as SharedChartPoint, type ProgramRef as SharedProgramRef } from "@/lib/burndown-chart-data";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -16,6 +17,7 @@ import {
 
 interface SubTask {
   id: string; name: string; points: number; completionPercent: number; status: string; isAddedScope: boolean;
+  assignedOrganization: "ECLIPSE" | "ACCENTURE" | null;
 }
 interface Initiative {
   id: string; name: string; description: string | null; category: string;
@@ -47,6 +49,14 @@ function stCompletedPts(st: SubTask): number {
   return Math.round(st.points * (st.completionPercent / 100));
 }
 
+function stBasePoints(st: SubTask): number {
+  return st.isAddedScope ? 0 : st.points;
+}
+
+function stScopePoints(st: SubTask): number {
+  return st.points;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   NOT_STARTED: "#9ca3af", IN_PROGRESS: "#3b82f6", BLOCKED: "#ef4444", DONE: "#22c55e",
 };
@@ -73,182 +83,34 @@ function BurndownTooltip({ active, payload, label }: any) {
   );
 }
 
-/* ─── Timeline builder ────────────────────────────────── */
+/* ─── Timeline: use shared buildTimeline; narrow to initiative window for subcharts ───────────────────────────── */
 
-/** Get the program start year/month */
-function getProgramStart(program: ProgramRef): { year: number; month: number } {
-  if (program.startDate) {
-    const d = new Date(program.startDate);
-    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+/** Narrow a global period timeline down to an initiative's planned start/end window. */
+function slicePeriodsForInitiative(all: BurnPeriod[], init: Initiative): BurnPeriod[] {
+  if (all.length === 0) return all;
+
+  let startIdx = 0;
+  let endIdx = all.length - 1;
+
+  if (init.plannedStartMonth) {
+    const key = init.plannedStartMonth;
+    const idx = all.findIndex(p => p.dateKey >= key);
+    if (idx >= 0) startIdx = idx;
   }
-  return { year: 2000 + program.fyStartYear, month: 1 };
-}
-
-/** Build overall timeline (uses latest workstream end or program target) */
-function buildTimeline(program: ProgramRef, workstreams: Workstream[]): BurnPeriod[] {
-  const start = getProgramStart(program);
-
-  // End: latest workstream targetCompletionDate, or FY end year
-  let endYear = 2000 + program.fyEndYear;
-  let endMonth = 11;
-
-  for (const ws of workstreams) {
-    const parsed = parseTargetMonth(ws.targetCompletionDate);
-    if (parsed) {
-      if (parsed.year > endYear || (parsed.year === endYear && parsed.month > endMonth)) {
-        endYear = parsed.year;
-        endMonth = parsed.month;
-      }
-    }
-  }
-
-  if (program.targetDate) {
-    const d = new Date(program.targetDate);
-    endYear = d.getFullYear();
-    endMonth = d.getMonth() + 1;
-  }
-
-  return getMonthlyPeriods(start.year, start.month, endYear, endMonth);
-}
-
-/** Build timeline for a single workstream (ends at its targetCompletionDate) */
-function buildWsTimeline(program: ProgramRef, ws: Workstream): BurnPeriod[] {
-  const start = getProgramStart(program);
-
-  // End at the workstream's own target, or fall back to the latest initiative end, or FY end
-  const parsed = parseTargetMonth(ws.targetCompletionDate);
-  let endYear: number, endMonth: number;
-
-  if (parsed) {
-    endYear = parsed.year;
-    endMonth = parsed.month;
-  } else {
-    // Try to find the latest initiative plannedEndMonth in this workstream
-    let latestEnd: { year: number; month: number } | null = null;
-    for (const init of ws.initiatives) {
-      if (init.plannedEndMonth) {
-        const [y, m] = init.plannedEndMonth.split("-").map(Number);
-        if (!latestEnd || y > latestEnd.year || (y === latestEnd.year && m > latestEnd.month)) {
-          latestEnd = { year: y, month: m };
-        }
-      }
-    }
-    if (latestEnd) {
-      endYear = latestEnd.year;
-      endMonth = latestEnd.month;
-    } else {
-      endYear = 2000 + program.fyEndYear;
-      endMonth = 11;
-    }
-  }
-
-  return getMonthlyPeriods(start.year, start.month, endYear, endMonth);
-}
-
-/** Build timeline for a single initiative (ends at its plannedEndMonth) */
-function buildInitTimeline(program: ProgramRef, ws: Workstream, init: Initiative): BurnPeriod[] {
-  const start = getProgramStart(program);
-
-  let endYear: number, endMonth: number;
-
   if (init.plannedEndMonth) {
-    const [y, m] = init.plannedEndMonth.split("-").map(Number);
-    endYear = y;
-    endMonth = m;
-  } else {
-    // Fall back to workstream target
-    const parsed = parseTargetMonth(ws.targetCompletionDate);
-    if (parsed) {
-      endYear = parsed.year;
-      endMonth = parsed.month;
-    } else {
-      endYear = 2000 + program.fyEndYear;
-      endMonth = 11;
+    const key = init.plannedEndMonth;
+    let idx = -1;
+    for (let i = all.length - 1; i >= 0; i--) {
+      if (all[i].dateKey <= key) { idx = i; break; }
     }
+    if (idx >= 0) endIdx = idx;
   }
 
-  return getMonthlyPeriods(start.year, start.month, endYear, endMonth);
+  if (startIdx > endIdx) return all;
+  return all.slice(startIdx, endIdx + 1);
 }
 
-/* ─── Chart data builder ──────────────────────────────── */
-
-interface ChartPoint {
-  label: string; date: string;
-  remaining: number | null; ideal: number; scopeLine: number;
-  isCurrent: boolean; scopeChanged: boolean;
-}
-
-/**
- * Build chart data for a burndown.
- *
- * Purple "Scope" line: a declining line like ideal, but recalculated from the
- * actual scope at each point. If scope stays constant it mirrors ideal exactly.
- * If scope grows (added work), the purple line is ABOVE ideal — steeper burn
- * is needed. It always declines from scopeValue → 0 over the remaining months.
- *
- * Orange "Remaining" line: starts at the same origin as purple.
- * Only has data where snapshots exist or for the current period (live).
- *
- * Blue "Ideal" line: linear decline from startTotal → 0.
- */
-function buildChartData(
-  allPeriods: BurnPeriod[],
-  snapshotByDate: Map<string, { totalPoints: number; completedPoints: number }>,
-  startTotal: number,
-  liveRemaining: number,
-  liveTotalPts: number,
-  currentPeriod: BurnPeriod,
-): ChartPoint[] {
-  const totalPeriods = allPeriods.length;
-  const lastIdx = totalPeriods - 1 || 1;
-
-  // First pass: track actual scope with carry-forward
-  const scopeRaw: number[] = [];
-  let lastKnownScope = startTotal;
-  for (let i = 0; i < allPeriods.length; i++) {
-    const snap = snapshotByDate.get(allPeriods[i].dateKey);
-    const isCurrent = allPeriods[i].dateKey === currentPeriod.dateKey;
-    if (snap) {
-      lastKnownScope = snap.totalPoints;
-    } else if (isCurrent) {
-      lastKnownScope = liveTotalPts;
-    }
-    scopeRaw.push(lastKnownScope);
-  }
-
-  return allPeriods.map((period, idx) => {
-    const snap = snapshotByDate.get(period.dateKey);
-    const isCurrent = period.dateKey === currentPeriod.dateKey;
-
-    // Blue ideal: linear from startTotal → 0
-    const idealRemaining = Math.max(0, Math.round(startTotal * (1 - idx / lastIdx)));
-
-    // Purple scope line: linear from scopeRaw[idx] → 0 over the remaining months
-    // This means at each point it shows "where you'd need to be" given actual scope
-    const scopeVal = scopeRaw[idx];
-    const scopeLine = Math.max(0, Math.round(scopeVal * (1 - idx / lastIdx)));
-
-    let scopeChanged = false;
-    if (idx > 0 && scopeRaw[idx] !== scopeRaw[idx - 1]) {
-      scopeChanged = true;
-    }
-
-    // Orange remaining: only where we have data
-    let remaining: number | null = null;
-    let label = period.shortLabel;
-
-    if (idx === 0) {
-      remaining = snap ? snap.totalPoints - snap.completedPoints : scopeVal;
-    } else if (snap) {
-      remaining = snap.totalPoints - snap.completedPoints;
-    } else if (isCurrent) {
-      remaining = liveRemaining;
-      label = `${period.shortLabel} *`;
-    }
-
-    return { label, date: period.dateKey, remaining, ideal: idealRemaining, scopeLine, isCurrent, scopeChanged };
-  });
-}
+type ChartPoint = SharedChartPoint;
 
 /* ─── Main Component ──────────────────────────────────── */
 
@@ -259,45 +121,89 @@ export default function BurndownView({
 }) {
   const [selectedWs, setSelectedWs] = useState<string>("all");
   const [selectedProgram, setSelectedProgram] = useState<string>(programs[0]?.id || "all");
+  const [orgFilter, setOrgFilter] = useState<"all" | "ECLIPSE" | "ACCENTURE">("all");
   const [hideIdeal, setHideIdeal] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const currentPeriod = useMemo(() => getCurrentPeriod(), []);
 
+  /** Subtask matches the assigned-organization filter */
+  function matchesSubTaskOrg(st: SubTask): boolean {
+    if (orgFilter === "all") return true;
+    return (st.assignedOrganization ?? null) === orgFilter;
+  }
+
+  /** Initiative has at least one subtask matching the org filter (for including in snapshot and display) */
+  const initiativeHasMatchingSubTasks = useMemo(() => {
+    const set = new Set<string>();
+    for (const ws of workstreams) {
+      for (const init of ws.initiatives) {
+        const hasMatch = init.subTasks.some(st => matchesSubTaskOrg(st));
+        if (hasMatch) set.add(init.id);
+      }
+    }
+    return set;
+  }, [workstreams, orgFilter]);
+
   const activeProgram = programs.find(p => p.id === selectedProgram) || programs[0];
   const allPeriods = useMemo(
-    () => activeProgram ? buildTimeline(activeProgram, workstreams) : [],
+    () => (activeProgram ? buildTimeline(activeProgram as unknown as SharedProgramRef, workstreams) : []),
     [activeProgram, workstreams]
   );
 
   function refresh() { startTransition(() => router.refresh()); }
 
-  /* ── Live totals (completionPercent) ── */
-  const programTotalPts = workstreams.reduce((s, ws) => s + ws.initiatives.reduce((si, i) => si + i.subTasks.reduce((st, t) => st + t.points, 0), 0), 0);
-  const programCompletedPts = workstreams.reduce((s, ws) => s + ws.initiatives.reduce((si, i) => si + i.subTasks.reduce((st, t) => st + stCompletedPts(t), 0), 0), 0);
-  const programPct = programTotalPts > 0 ? Math.round((programCompletedPts / programTotalPts) * 100) : 0;
+  /* ── Live totals (baseline vs added-scope) — only subtasks matching org filter ── */
+  let programBasePts = 0;
+  let programScopePts = 0;
+  let programCompletedPts = 0;
+  for (const ws of workstreams) {
+    for (const init of ws.initiatives) {
+      for (const t of init.subTasks) {
+        if (!matchesSubTaskOrg(t)) continue;
+        programBasePts += stBasePoints(t);
+        programScopePts += stScopePoints(t);
+        programCompletedPts += stCompletedPts(t);
+      }
+    }
+  }
+  const programPct = programScopePts > 0 ? Math.round((programCompletedPts / programScopePts) * 100) : 0;
 
   const wsLiveTotals = useMemo(() => {
-    const map = new Map<string, { name: string; color: string; totalPoints: number; completedPoints: number }>();
+    const map = new Map<string, { name: string; color: string; basePoints: number; scopePoints: number; completedPoints: number }>();
     for (const ws of workstreams) {
-      let total = 0, completed = 0;
-      for (const i of ws.initiatives) for (const t of i.subTasks) { total += t.points; completed += stCompletedPts(t); }
-      map.set(ws.id, { name: ws.name, color: ws.color || "#888", totalPoints: total, completedPoints: completed });
+      let basePts = 0, scopePts = 0, completed = 0;
+      for (const i of ws.initiatives) {
+        for (const t of i.subTasks) {
+          if (!matchesSubTaskOrg(t)) continue;
+          basePts += stBasePoints(t);
+          scopePts += stScopePoints(t);
+          completed += stCompletedPts(t);
+        }
+      }
+      map.set(ws.id, { name: ws.name, color: ws.color || "#888", basePoints: basePts, scopePoints: scopePts, completedPoints: completed });
     }
     return map;
-  }, [workstreams]);
+  }, [workstreams, orgFilter]);
 
   const initLiveTotals = useMemo(() => {
-    const map = new Map<string, { name: string; wsId: string; totalPoints: number; completedPoints: number }>();
+    const map = new Map<string, { name: string; wsId: string; basePoints: number; scopePoints: number; completedPoints: number }>();
     for (const ws of workstreams) {
       for (const init of ws.initiatives) {
-        let total = 0, completed = 0;
-        for (const t of init.subTasks) { total += t.points; completed += stCompletedPts(t); }
-        map.set(init.id, { name: init.name, wsId: ws.id, totalPoints: total, completedPoints: completed });
+        let basePts = 0, scopePts = 0, completed = 0;
+        for (const t of init.subTasks) {
+          if (!matchesSubTaskOrg(t)) continue;
+          basePts += stBasePoints(t);
+          scopePts += stScopePoints(t);
+          completed += stCompletedPts(t);
+        }
+        if (basePts > 0 || scopePts > 0 || completed > 0) {
+          map.set(init.id, { name: init.name, wsId: ws.id, basePoints: basePts, scopePoints: scopePts, completedPoints: completed });
+        }
       }
     }
     return map;
-  }, [workstreams]);
+  }, [workstreams, orgFilter]);
 
   const filteredWs = useMemo(() => selectedWs === "all" ? workstreams : workstreams.filter(ws => ws.id === selectedWs), [selectedWs, workstreams]);
 
@@ -307,12 +213,42 @@ export default function BurndownView({
     const relevant = programFilter ? snapshots.filter(s => s.programId === programFilter) : snapshots;
     const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
     for (const snap of relevant) {
-      const e = byDate.get(snap.date) || { totalPoints: 0, completedPoints: 0 };
-      e.totalPoints += snap.totalPoints; e.completedPoints += snap.completedPoints;
-      byDate.set(snap.date, e);
+      if (snap.workstreamData) {
+        const wsEntries = snap.workstreamData as Record<string, WsSnapshotEntry>;
+        let total = 0;
+        let completed = 0;
+        for (const wsId of Object.keys(wsEntries)) {
+          const entry = wsEntries[wsId];
+          if (entry.subcomponents) {
+            for (const [initId, sub] of Object.entries(entry.subcomponents)) {
+              if (orgFilter !== "all" && !initiativeHasMatchingSubTasks.has(initId)) continue;
+              total += sub.totalPoints;
+              completed += sub.completedPoints;
+            }
+          } else if (orgFilter === "all") {
+            total += entry.totalPoints;
+            completed += entry.completedPoints;
+          }
+        }
+        const existing = byDate.get(snap.date) || { totalPoints: 0, completedPoints: 0 };
+        existing.totalPoints += total;
+        existing.completedPoints += completed;
+        byDate.set(snap.date, existing);
+      } else if (orgFilter === "all") {
+        const e = byDate.get(snap.date) || { totalPoints: 0, completedPoints: 0 };
+        e.totalPoints += snap.totalPoints; e.completedPoints += snap.completedPoints;
+        byDate.set(snap.date, e);
+      }
     }
-    return buildChartData(allPeriods, byDate, programTotalPts, programTotalPts - programCompletedPts, programTotalPts, currentPeriod);
-  }, [snapshots, selectedProgram, allPeriods, currentPeriod, programTotalPts, programCompletedPts]);
+    return buildChartData(
+      allPeriods,
+      byDate,
+      programBasePts,
+      programScopePts - programCompletedPts,
+      programScopePts,
+      currentPeriod,
+    );
+  }, [snapshots, selectedProgram, allPeriods, currentPeriod, programBasePts, programScopePts, programCompletedPts, orgFilter, initiativeHasMatchingSubTasks]);
 
   /* ── Per-workstream chart data (each uses its own timeline) ── */
   const wsChartDataMap = useMemo(() => {
@@ -320,18 +256,71 @@ export default function BurndownView({
     if (!activeProgram) return map;
     for (const ws of workstreams) {
       const live = wsLiveTotals.get(ws.id)!;
-      const wsPeriods = buildWsTimeline(activeProgram, ws);
-      const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
-      for (const snap of snapshots) {
-        if (snap.workstreamData) {
-          const entry = (snap.workstreamData as Record<string, WsSnapshotEntry>)[ws.id];
-          if (entry) byDate.set(snap.date, { totalPoints: entry.totalPoints, completedPoints: entry.completedPoints });
+
+      // Workstream-specific timeline: earliest start → latest end across its initiatives
+      let wsStartYear = allPeriods[0]?.year;
+      let wsStartMonth = allPeriods[0]?.month;
+      let wsEndYear = allPeriods[allPeriods.length - 1]?.year;
+      let wsEndMonth = allPeriods[allPeriods.length - 1]?.month;
+      let hasBounds = false;
+      for (const init of ws.initiatives) {
+        if (orgFilter !== "all" && !initiativeHasMatchingSubTasks.has(init.id)) continue;
+        if (init.plannedStartMonth) {
+          const [sy, sm] = init.plannedStartMonth.split("-").map(Number);
+          if (!hasBounds || sy < wsStartYear || (sy === wsStartYear && sm < wsStartMonth)) {
+            wsStartYear = sy;
+            wsStartMonth = sm;
+          }
+          hasBounds = true;
+        }
+        if (init.plannedEndMonth) {
+          const [ey, em] = init.plannedEndMonth.split("-").map(Number);
+          if (!hasBounds || ey > wsEndYear || (ey === wsEndYear && em > wsEndMonth)) {
+            wsEndYear = ey;
+            wsEndMonth = em;
+          }
+          hasBounds = true;
         }
       }
-      map.set(ws.id, { name: ws.name, color: live.color, periods: wsPeriods, data: buildChartData(wsPeriods, byDate, live.totalPoints, live.totalPoints - live.completedPoints, live.totalPoints, currentPeriod) });
+      const wsPeriods = hasBounds && wsStartYear && wsStartMonth && wsEndYear && wsEndMonth
+        ? getMonthlyPeriods(wsStartYear, wsStartMonth, wsEndYear, wsEndMonth)
+        : allPeriods;
+
+      const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
+      for (const snap of snapshots) {
+        if (!snap.workstreamData) continue;
+        const wsEntry = (snap.workstreamData as Record<string, WsSnapshotEntry>)[ws.id];
+        if (!wsEntry) continue;
+        let total = 0;
+        let completed = 0;
+        if (wsEntry.subcomponents) {
+          for (const [initId, sub] of Object.entries(wsEntry.subcomponents)) {
+            if (orgFilter !== "all" && !initiativeHasMatchingSubTasks.has(initId)) continue;
+            total += sub.totalPoints;
+            completed += sub.completedPoints;
+          }
+        } else if (orgFilter === "all") {
+          total = wsEntry.totalPoints;
+          completed = wsEntry.completedPoints;
+        }
+        byDate.set(snap.date, { totalPoints: total, completedPoints: completed });
+      }
+      map.set(ws.id, {
+        name: ws.name,
+        color: live.color,
+        periods: wsPeriods,
+        data: buildChartData(
+          wsPeriods,
+          byDate,
+          live.basePoints,
+          live.scopePoints - live.completedPoints,
+          live.scopePoints,
+          currentPeriod,
+        ),
+      });
     }
     return map;
-  }, [workstreams, wsLiveTotals, snapshots, activeProgram, currentPeriod]);
+  }, [workstreams, wsLiveTotals, snapshots, allPeriods, currentPeriod, orgFilter, initiativeHasMatchingSubTasks]);
 
   /* ── Per-subcomponent chart data (each uses its own timeline) ── */
   const subChartDataMap = useMemo(() => {
@@ -341,8 +330,9 @@ export default function BurndownView({
     if (!ws || !activeProgram) return map;
 
     for (const init of ws.initiatives) {
-      const live = initLiveTotals.get(init.id)!;
-      const initPeriods = buildInitTimeline(activeProgram, ws, init);
+      const live = initLiveTotals.get(init.id);
+      if (!live) continue;
+      const periods = slicePeriodsForInitiative(allPeriods, init);
       const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
       for (const snap of snapshots) {
         if (snap.workstreamData) {
@@ -351,7 +341,17 @@ export default function BurndownView({
           if (sub) byDate.set(snap.date, { totalPoints: sub.totalPoints, completedPoints: sub.completedPoints });
         }
       }
-      map.set(init.id, { name: init.name, data: buildChartData(initPeriods, byDate, live.totalPoints, live.totalPoints - live.completedPoints, live.totalPoints, currentPeriod) });
+      map.set(init.id, {
+        name: init.name,
+        data: buildChartData(
+          periods,
+          byDate,
+          live.basePoints,
+          live.scopePoints - live.completedPoints,
+          live.scopePoints,
+          currentPeriod,
+        ),
+      });
     }
     return map;
   }, [selectedWs, workstreams, initLiveTotals, snapshots, activeProgram, currentPeriod]);
@@ -408,6 +408,18 @@ export default function BurndownView({
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-semibold">Assigned organization:</span>
+            <select
+              className="h-7 text-xs border rounded px-1 bg-background"
+              value={orgFilter}
+              onChange={(e) => setOrgFilter(e.target.value as "all" | "ECLIPSE" | "ACCENTURE")}
+            >
+              <option value="all">All</option>
+              <option value="ECLIPSE">Eclipse</option>
+              <option value="ACCENTURE">Accenture</option>
+            </select>
+          </div>
           {currentPeriodSaved && <Badge variant="secondary" className="text-[10px]">Month saved</Badge>}
           <Button onClick={handlePushSnapshot} disabled={isPending} size="sm">
             {currentPeriodSaved ? "Update This Month" : "Save This Month"}
@@ -417,9 +429,9 @@ export default function BurndownView({
 
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card><CardContent className="pt-6 text-center"><p className="text-xs text-muted-foreground">Total Points</p><p className="text-3xl font-bold">{programTotalPts}</p></CardContent></Card>
+        <Card><CardContent className="pt-6 text-center"><p className="text-xs text-muted-foreground">Total Points</p><p className="text-3xl font-bold">{programScopePts}</p></CardContent></Card>
         <Card><CardContent className="pt-6 text-center"><p className="text-xs text-muted-foreground">Completed</p><p className="text-3xl font-bold text-green-600">{programCompletedPts}</p></CardContent></Card>
-        <Card><CardContent className="pt-6 text-center"><p className="text-xs text-muted-foreground">Remaining</p><p className="text-3xl font-bold text-orange-500">{programTotalPts - programCompletedPts}</p></CardContent></Card>
+        <Card><CardContent className="pt-6 text-center"><p className="text-xs text-muted-foreground">Remaining</p><p className="text-3xl font-bold text-orange-500">{programScopePts - programCompletedPts}</p></CardContent></Card>
         <Card><CardContent className="pt-6 text-center"><p className="text-xs text-muted-foreground">Snapshots</p><p className="text-3xl font-bold text-purple-600">{snapshots.length}</p>{lastSnapshotDate && <p className="text-[10px] text-muted-foreground mt-0.5">Last: {lastSnapshotDate}</p>}</CardContent></Card>
         <Card><CardContent className="pt-6 text-center"><p className="text-xs text-muted-foreground">Overall</p><p className="text-3xl font-bold">{programPct}%</p><div className="mt-2 w-full bg-gray-200 rounded-full h-2"><div className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-green-500" style={{ width: `${programPct}%` }} /></div></CardContent></Card>
       </div>
@@ -486,7 +498,7 @@ export default function BurndownView({
           const wsChart = ws ? wsChartDataMap.get(ws.id) : null;
           const live = ws ? wsLiveTotals.get(ws.id) : null;
           if (!ws || !wsChart || !live) return null;
-          const pct = live.totalPoints > 0 ? Math.round((live.completedPoints / live.totalPoints) * 100) : 0;
+          const pct = live.scopePoints > 0 ? Math.round((live.completedPoints / live.scopePoints) * 100) : 0;
           return (
             <Card>
               <CardHeader className="pb-2">
@@ -496,7 +508,7 @@ export default function BurndownView({
                     <CardTitle>{wsChart.name} — Burndown</CardTitle>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.totalPoints} pts</span>
+                    <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.scopePoints} pts</span>
                     <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                   </div>
                 </div>
@@ -505,7 +517,7 @@ export default function BurndownView({
                 </p>
               </CardHeader>
               <CardContent>
-                {live.totalPoints > 0 ? renderChart(wsChart.data, 380) : (
+                {live.scopePoints > 0 ? renderChart(wsChart.data, 380) : (
                   <div className="py-16 text-center text-xs text-muted-foreground">No subtask points yet</div>
                 )}
               </CardContent>
@@ -523,7 +535,8 @@ export default function BurndownView({
               const wsChart = wsChartDataMap.get(ws.id);
               if (!wsChart) return null;
               const live = wsLiveTotals.get(ws.id)!;
-              const pct = live.totalPoints > 0 ? Math.round((live.completedPoints / live.totalPoints) * 100) : 0;
+              if (orgFilter !== "all" && live.scopePoints === 0) return null;
+              const pct = live.scopePoints > 0 ? Math.round((live.completedPoints / live.scopePoints) * 100) : 0;
               return (
                 <Card key={ws.id}>
                   <CardHeader className="pb-2">
@@ -533,13 +546,13 @@ export default function BurndownView({
                         <CardTitle className="text-sm">{wsChart.name}</CardTitle>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
-                        <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.totalPoints} pts</span>
+                        <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.scopePoints} pts</span>
                         <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {live.totalPoints > 0 ? renderChart(wsChart.data, 240) : (
+                    {live.scopePoints > 0 ? renderChart(wsChart.data, 240) : (
                       <div className="py-8 text-center text-xs text-muted-foreground">No subtask points yet</div>
                     )}
                   </CardContent>
@@ -561,8 +574,8 @@ export default function BurndownView({
               {ws.initiatives.map((init) => {
                 const subChart = subChartDataMap.get(init.id);
                 const subLive = initLiveTotals.get(init.id);
-                if (!subChart || !subLive || subLive.totalPoints === 0) return null;
-                const subPct = subLive.totalPoints > 0 ? Math.round((subLive.completedPoints / subLive.totalPoints) * 100) : 0;
+                if (!subChart || !subLive || subLive.scopePoints === 0) return null;
+                const subPct = subLive.scopePoints > 0 ? Math.round((subLive.completedPoints / subLive.scopePoints) * 100) : 0;
                 return (
                   <Card key={init.id} className="border-dashed">
                     <CardHeader className="pb-1 pt-3 px-3">
@@ -571,7 +584,7 @@ export default function BurndownView({
                           <div className="w-2 h-2 rounded-full bg-orange-500" />
                           <span className="text-xs font-semibold truncate max-w-[160px]" title={subChart.name}>{subChart.name}</span>
                         </div>
-                        <span className="text-[10px] font-mono text-muted-foreground">{subLive.completedPoints}/{subLive.totalPoints} ({subPct}%)</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">{subLive.completedPoints}/{subLive.scopePoints} ({subPct}%)</span>
                       </div>
                     </CardHeader>
                     <CardContent className="px-2 pb-2">

@@ -64,13 +64,14 @@ function buildChartData(
     else if (p.dateKey === currentPeriod.dateKey) lastScope = liveTotalPts;
     scopeRaw.push(lastScope);
   }
+  const peakScope = scopeRaw.length > 0 ? Math.max(...scopeRaw) : startTotal;
   return allPeriods.map((period, idx) => {
     const snap = snapshotByDate.get(period.dateKey);
     const isCurrent = period.dateKey === currentPeriod.dateKey;
     const ideal = Math.max(0, Math.round(startTotal * (1 - idx / lastIdx)));
-    const scopeLine = Math.max(0, Math.round(scopeRaw[idx] * (1 - idx / lastIdx)));
+    const scopeLine = Math.max(0, Math.round(peakScope * (1 - idx / lastIdx)));
     let remaining: number | null = null;
-    if (idx === 0) remaining = snap ? snap.totalPoints - snap.completedPoints : scopeRaw[idx];
+    if (idx === 0) remaining = peakScope;
     else if (snap) remaining = snap.totalPoints - snap.completedPoints;
     else if (isCurrent) remaining = liveRemaining;
     return { label: period.shortLabel, remaining, ideal, scopeLine, isCurrent };
