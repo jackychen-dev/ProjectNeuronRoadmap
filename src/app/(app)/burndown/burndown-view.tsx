@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -128,10 +128,10 @@ export default function BurndownView({
   const currentPeriod = useMemo(() => getCurrentPeriod(), []);
 
   /** Subtask matches the assigned-organization filter */
-  function matchesSubTaskOrg(st: SubTask): boolean {
+  const matchesSubTaskOrg = useCallback((st: SubTask): boolean => {
     if (orgFilter === "all") return true;
     return (st.assignedOrganization ?? null) === orgFilter;
-  }
+  }, [orgFilter]);
 
   /** Initiative has at least one subtask matching the org filter (for including in snapshot and display) */
   const initiativeHasMatchingSubTasks = useMemo(() => {
@@ -143,7 +143,7 @@ export default function BurndownView({
       }
     }
     return set;
-  }, [workstreams, orgFilter]);
+  }, [workstreams, matchesSubTaskOrg]);
 
   const activeProgram = programs.find(p => p.id === selectedProgram) || programs[0];
   const allPeriods = useMemo(
@@ -184,7 +184,7 @@ export default function BurndownView({
       map.set(ws.id, { name: ws.name, color: ws.color || "#888", basePoints: basePts, scopePoints: scopePts, completedPoints: completed });
     }
     return map;
-  }, [workstreams, orgFilter]);
+  }, [workstreams, matchesSubTaskOrg]);
 
   const initLiveTotals = useMemo(() => {
     const map = new Map<string, { name: string; wsId: string; basePoints: number; scopePoints: number; completedPoints: number }>();
@@ -203,7 +203,7 @@ export default function BurndownView({
       }
     }
     return map;
-  }, [workstreams, orgFilter]);
+  }, [workstreams, matchesSubTaskOrg]);
 
   const filteredWs = useMemo(() => selectedWs === "all" ? workstreams : workstreams.filter(ws => ws.id === selectedWs), [selectedWs, workstreams]);
 
@@ -320,7 +320,7 @@ export default function BurndownView({
       });
     }
     return map;
-  }, [workstreams, wsLiveTotals, snapshots, allPeriods, currentPeriod, orgFilter, initiativeHasMatchingSubTasks]);
+  }, [workstreams, wsLiveTotals, snapshots, allPeriods, currentPeriod, orgFilter, initiativeHasMatchingSubTasks, activeProgram]);
 
   /* ── Per-subcomponent chart data (each uses its own timeline) ── */
   const subChartDataMap = useMemo(() => {
@@ -354,7 +354,7 @@ export default function BurndownView({
       });
     }
     return map;
-  }, [selectedWs, workstreams, initLiveTotals, snapshots, activeProgram, currentPeriod]);
+  }, [selectedWs, workstreams, initLiveTotals, snapshots, activeProgram, currentPeriod, allPeriods]);
 
   /* ── Handlers ── */
   function handlePushSnapshot() {
