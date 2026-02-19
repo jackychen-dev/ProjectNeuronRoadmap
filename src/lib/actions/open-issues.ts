@@ -140,21 +140,48 @@ function parseMentionedPersonIds(body: string, people: { id: string; initials: s
   return [...ids];
 }
 
-export async function addIssueComment(data: unknown) {
-  const parsed = issueCommentSchema.parse(data);
-  const people = await prisma.person.findMany({ select: { id: true, initials: true, name: true } });
-  const mentionedIds = parseMentionedPersonIds(parsed.body, people);
+export type AddCommentResult =
+  | { success: true; comment: { id: string; issueId: string; body: string; authorName: string | null; createdAt: Date; parentId: string | null } }
+  | { success: false; error: string };
 
-  const comment = await prisma.issueComment.create({
-    data: {
-      issueId: parsed.issueId,
-      parentId: parsed.parentId ?? null,
-      body: parsed.body,
-      authorName: parsed.authorName || null,
-    },
-  });
+export async function addIssueComment(data: unknown): Promise<AddCommentResult> {
+  const parsed = issueCommentSchema.safeParse(data);
+  if (!parsed.success) {
+    const msg = parsed.error.flatten().formErrors?.[0] || parsed.error.message || "Invalid comment data";
+    return { success: false, error: msg };
+  }
+  const { issueId, parentId, body, authorName } = parsed.data;
+  const bodyTrim = typeof body === "string" ? body.trim() : String(body ?? "");
+  if (!bodyTrim) return { success: false, error: "Comment cannot be empty" };
+  const issueIdStr = typeof issueId === "string" ? issueId : String(issueId ?? "");
+  if (!issueIdStr) return { success: false, error: "Issue is required" };
 
-  // Create @mention records if tables exist (optional on deploy; comment is already saved)
+  let people: { id: string; initials: string | null; name: string }[] = [];
+  try {
+    people = await prisma.person.findMany({ select: { id: true, initials: true, name: true } });
+  } catch {
+    // Person table may be missing; continue without mentions
+  }
+  const mentionedIds = parseMentionedPersonIds(bodyTrim, people);
+
+  let comment: { id: string; issueId: string; body: string; authorName: string | null; createdAt: Date; parentId: string | null };
+  try {
+    comment = await prisma.issueComment.create({
+      data: {
+        issueId: issueIdStr,
+        parentId: parentId && String(parentId).trim() ? String(parentId).trim() : null,
+        body: bodyTrim,
+        authorName: authorName && String(authorName).trim() ? String(authorName).trim() : null,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Database error";
+    return {
+      success: false,
+      error: "Could not save comment. If this persists, run database migrations (e.g. npx prisma migrate deploy).",
+    };
+  }
+
   try {
     for (const personId of mentionedIds) {
       await prisma.issueCommentMention.upsert({
@@ -163,16 +190,20 @@ export async function addIssueComment(data: unknown) {
         update: {},
       });
       await prisma.issueMention.create({
-        data: { issueId: parsed.issueId, commentId: comment.id, personId },
+        data: { issueId: issueIdStr, commentId: comment.id, personId },
       }).catch(() => {});
     }
   } catch {
-    // Mention tables may be missing before migrations; comment was already created
+    // Mention tables may be missing; comment was already created
   }
 
-  revalidatePath("/open-issues");
-  revalidatePath("/my-dashboard");
-  return comment;
+  try {
+    revalidatePath("/open-issues");
+    revalidatePath("/my-dashboard");
+  } catch {
+    // Ignore revalidate errors
+  }
+  return { success: true, comment };
 }
 
 /** Get mentions for a person (for My Dashboard) */

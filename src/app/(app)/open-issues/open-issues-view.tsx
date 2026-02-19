@@ -640,6 +640,7 @@ function IssueCard({
   const [commentText, setCommentText] = useState("");
   const [commentAuthor, setCommentAuthor] = useState("");
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState<string | null>(null);
 
   // Mention dropdown state
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
@@ -699,16 +700,23 @@ function IssueCard({
 
   function handleAddComment() {
     if (!commentText.trim()) return;
+    setCommentError(null);
     startTransition(async () => {
-      await trackedSave(() => addIssueComment({
+      const result = await trackedSave(() => addIssueComment({
         issueId: issue.id,
         parentId: replyingToId,
         body: commentText.trim(),
         authorName: commentAuthor.trim() || null,
       }));
-      setCommentText("");
-      setReplyingToId(null);
-      onUpdate();
+      if (result && typeof result === "object" && "success" in result) {
+        if (result.success) {
+          setCommentText("");
+          setReplyingToId(null);
+          onUpdate();
+        } else {
+          setCommentError(result.error ?? "Save failed");
+        }
+      }
     });
   }
 
@@ -938,7 +946,7 @@ function IssueCard({
                   className="w-full rounded-md border px-2.5 py-1.5 text-sm bg-background min-h-[50px] resize-y"
                   placeholder="Add a comment... Type @ for suggestions to notify someone."
                   value={commentText}
-                  onChange={setCommentText}
+                  onChange={(v) => { setCommentText(v); setCommentError(null); }}
                   people={people}
                   disabled={isPending}
                   onKeyDown={(e) => {
@@ -947,6 +955,9 @@ function IssueCard({
                     }
                   }}
                 />
+                {commentError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{commentError}</p>
+                )}
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"

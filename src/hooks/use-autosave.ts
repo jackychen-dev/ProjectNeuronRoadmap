@@ -73,6 +73,10 @@ export function useTrackedSave() {
       markSaving();
       try {
         const result = await action();
+        if (result != null && typeof result === "object" && "success" in result && (result as { success?: boolean }).success === false) {
+          markError();
+          return result as T;
+        }
         markSaved();
         return result;
       } catch (err) {
