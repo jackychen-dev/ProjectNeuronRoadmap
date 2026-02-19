@@ -9,7 +9,7 @@ import { updateInitiativeField, createInitiative, archiveInitiative } from "@/li
 import { createWorkstream, deleteWorkstream } from "@/lib/actions/workstreams";
 import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
 import { getCurrentPeriod } from "@/lib/burn-periods";
-import { useTrackedSave } from "@/hooks/use-autosave";
+import { useTrackedSave, useAutosaveStatus } from "@/hooks/use-autosave";
 
 // ── Types ────────────────────────────────────────────
 interface Initiative {
@@ -114,6 +114,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const trackedSave = useTrackedSave();
+  const { markSaving, markSaved, markError } = useAutosaveStatus();
 
   // Editing state
   const [editingDates, setEditingDates] = useState<{ id: string; start: string; end: string } | null>(null);
@@ -121,6 +122,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
   // Add workstream state
   const [showAddWs, setShowAddWs] = useState(false);
   const [newWs, setNewWs] = useState({ name: "", color: "#3b82f6", description: "" });
+  const [addWsError, setAddWsError] = useState<string | null>(null);
 
   // Add initiative state
   const [addingInitWs, setAddingInitWs] = useState<string | null>(null);
@@ -185,19 +187,31 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
 
   function handleAddWorkstream() {
     if (!newWs.name.trim()) return;
-    const programId = workstreams[0]?.programId;
-    if (!programId) return;
+    const programId = workstreams[0]?.programId ?? (programs[0] as { id?: string } | undefined)?.id;
+    if (!programId) {
+      setAddWsError("No program found. Add a program in Admin first.");
+      return;
+    }
+    setAddWsError(null);
     startTransition(async () => {
-      await trackedSave(() => createWorkstream({
-        name: newWs.name.trim(),
-        slug: slugify(newWs.name.trim()),
-        color: newWs.color,
-        description: newWs.description || undefined,
-        programId,
-      }));
-      setNewWs({ name: "", color: "#3b82f6", description: "" });
-      setShowAddWs(false);
-      refresh();
+      markSaving();
+      try {
+        await createWorkstream({
+          name: newWs.name.trim(),
+          slug: slugify(newWs.name.trim()),
+          color: newWs.color,
+          description: newWs.description || undefined,
+          programId,
+        });
+        markSaved();
+        setNewWs({ name: "", color: "#3b82f6", description: "" });
+        setShowAddWs(false);
+        refresh();
+      } catch (e) {
+        markError();
+        const msg = e instanceof Error ? e.message : "Failed to create workstream. Try a different name.";
+        setAddWsError(msg);
+      }
     });
   }
 
@@ -308,7 +322,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
             {filtered.reduce((s, ws) => s + ws.initiatives.length, 0)} initiatives across {filtered.length} workstreams
           </span>
         </div>
-        <Button size="sm" onClick={() => setShowAddWs(true)} disabled={isPending}>
+        <Button size="sm" onClick={() => { setShowAddWs(true); setAddWsError(null); }} disabled={isPending}>
           + Add category (workstream)
         </Button>
       </div>
@@ -317,6 +331,9 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
       {showAddWs && (
         <div className="border rounded-lg p-4 bg-card space-y-3">
           <h3 className="font-semibold text-sm">New category (workstream)</h3>
+          {addWsError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{addWsError}</p>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-semibold text-muted-foreground block mb-1">Name *</label>
@@ -358,7 +375,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
             <Button size="sm" className="h-8 text-xs" onClick={handleAddWorkstream} disabled={isPending || !newWs.name.trim()}>
               Create Workstream
             </Button>
-            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setShowAddWs(false)}>
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setShowAddWs(false); setAddWsError(null); }}>
               Cancel
             </Button>
           </div>
