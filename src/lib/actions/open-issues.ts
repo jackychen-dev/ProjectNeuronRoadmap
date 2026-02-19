@@ -1,6 +1,8 @@
 "use server";
 
+import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/prisma";
+import { authOptions } from "@/lib/auth";
 import { openIssueSchema, issueCommentSchema } from "@/lib/validations";
 import { revalidatePath } from "next/cache";
 
@@ -150,11 +152,41 @@ export async function addIssueComment(data: unknown): Promise<AddCommentResult> 
     const msg = parsed.error.flatten().formErrors?.[0] || parsed.error.message || "Invalid comment data";
     return { success: false, error: msg };
   }
-  const { issueId, parentId, body, authorName } = parsed.data;
+  const { issueId, parentId, body, authorName: clientAuthorName } = parsed.data;
   const bodyTrim = typeof body === "string" ? body.trim() : String(body ?? "");
   if (!bodyTrim) return { success: false, error: "Comment cannot be empty" };
   const issueIdStr = typeof issueId === "string" ? issueId : String(issueId ?? "");
   if (!issueIdStr) return { success: false, error: "Issue is required" };
+
+  // When user leaves "Your name" blank, use logged-in user name or linked Person name
+  let authorNameToSave: string | null = clientAuthorName && String(clientAuthorName).trim() ? String(clientAuthorName).trim() : null;
+  if (!authorNameToSave) {
+    try {
+      const session = await getServerSession(authOptions);
+      let userId = session?.user && (session.user as { id?: string }).id;
+      const email = session?.user && (session.user as { email?: string }).email;
+      const sessionName = session?.user?.name;
+      if (sessionName?.trim()) {
+        authorNameToSave = sessionName.trim();
+      } else {
+        if (!userId && email) {
+          const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+          if (u) userId = u.id;
+        }
+        if (userId) {
+          const person = await prisma.person.findUnique({ where: { userId }, select: { name: true } });
+          if (person?.name?.trim()) authorNameToSave = person.name.trim();
+          else {
+            const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+            if (user?.name?.trim()) authorNameToSave = user.name.trim();
+          }
+        }
+        if (!authorNameToSave && email) authorNameToSave = String(email).trim();
+      }
+    } catch {
+      // Ignore; keep authorNameToSave null and we'll show Anonymous for display
+    }
+  }
 
   let people: { id: string; initials: string | null; name: string }[] = [];
   try {
@@ -171,7 +203,7 @@ export async function addIssueComment(data: unknown): Promise<AddCommentResult> 
         issueId: issueIdStr,
         parentId: parentId && String(parentId).trim() ? String(parentId).trim() : null,
         body: bodyTrim,
-        authorName: authorName && String(authorName).trim() ? String(authorName).trim() : null,
+        authorName: authorNameToSave,
       },
     });
   } catch (err) {

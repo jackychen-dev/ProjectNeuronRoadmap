@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { updateInitiativeField, createInitiative, archiveInitiative } from "@/lib/actions/initiatives";
 import { createWorkstream, deleteWorkstream } from "@/lib/actions/workstreams";
 import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
@@ -125,7 +124,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
 
   // Add initiative state
   const [addingInitWs, setAddingInitWs] = useState<string | null>(null);
-  const [newInit, setNewInit] = useState({ name: "", category: "TOOLING", start: "", end: "" });
+  const [newInit, setNewInit] = useState({ name: "", start: "", end: "" });
 
   
 
@@ -208,11 +207,11 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
       await trackedSave(() => createInitiative({
         name: newInit.name.trim(),
         workstreamId: wsId,
-        category: newInit.category,
+        category: "TOOLING",
         plannedStartMonth: newInit.start || null,
         plannedEndMonth: newInit.end || null,
       }));
-      setNewInit({ name: "", category: "TOOLING", start: "", end: "" });
+      setNewInit({ name: "", start: "", end: "" });
       setAddingInitWs(null);
       refresh();
     });
@@ -310,14 +309,14 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
           </span>
         </div>
         <Button size="sm" onClick={() => setShowAddWs(true)} disabled={isPending}>
-          + New Workstream
+          + Add category (workstream)
         </Button>
       </div>
 
       {/* Add Workstream Form */}
       {showAddWs && (
         <div className="border rounded-lg p-4 bg-card space-y-3">
-          <h3 className="font-semibold text-sm">New Workstream</h3>
+          <h3 className="font-semibold text-sm">New category (workstream)</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-semibold text-muted-foreground block mb-1">Name *</label>
@@ -387,7 +386,7 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
                   <div className="flex items-center gap-2 ml-1">
                     <button
                       className="text-sm font-semibold text-primary hover:text-primary/80 whitespace-nowrap px-2 py-1 rounded border border-primary/30 hover:bg-primary/10"
-                      onClick={(e) => { e.stopPropagation(); setAddingInitWs(ws.id); setNewInit({ name: "", category: "TOOLING", start: "", end: "" }); }}
+                      onClick={(e) => { e.stopPropagation(); setAddingInitWs(ws.id); setNewInit({ name: "", start: "", end: "" }); }}
                     >
                       + Add initiative
                     </button>
@@ -461,29 +460,28 @@ export function GanttRoadmap({ workstreams, people = [], programs = [] }: { work
                         onChange={(e) => setNewInit({ ...newInit, name: e.target.value })}
                         autoFocus
                       />
-                      <Select
-                        className="h-7 text-xs w-24"
-                        value={newInit.category}
-                        onChange={(e) => setNewInit({ ...newInit, category: e.target.value })}
-                      >
-                        {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
-                          <option key={k} value={k}>{v}</option>
-                        ))}
-                      </Select>
-                      <Input
-                        type="month"
-                        className="h-7 text-xs w-32"
+                      <select
+                        className="h-7 text-xs w-28 rounded-md border border-input bg-background px-2"
                         value={newInit.start}
                         onChange={(e) => setNewInit({ ...newInit, start: e.target.value })}
                         title="Start month"
-                      />
-                      <Input
-                        type="month"
-                        className="h-7 text-xs w-32"
+                      >
+                        <option value="">— Start</option>
+                        {months.map((m) => (
+                          <option key={m} value={m}>{formatMonth(m)}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="h-7 text-xs w-28 rounded-md border border-input bg-background px-2"
                         value={newInit.end}
                         onChange={(e) => setNewInit({ ...newInit, end: e.target.value })}
                         title="End month"
-                      />
+                      >
+                        <option value="">— End</option>
+                        {months.map((m) => (
+                          <option key={m} value={m}>{formatMonth(m)}</option>
+                        ))}
+                      </select>
                       <Button
                         size="sm"
                         className="h-7 text-xs px-2"

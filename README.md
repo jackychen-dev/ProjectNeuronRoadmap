@@ -83,6 +83,14 @@ npm run dev
 
 3. If you see "Application error: a server-side exception has occurred", check **Vercel → Project → Logs** (or the deployment’s Function logs) for the real error. Missing `DATABASE_URL` or an unmigrated DB are common causes.
 
+4. **Comments on Open Issues not saving?** The app will show: *"Could not save comment. If this persists, run database migrations."* Fix it by running migrations against your **production** database (the same `DATABASE_URL` Vercel uses):
+   ```bash
+   # Get DATABASE_URL from Vercel → Project → Settings → Environment Variables, then:
+   set DATABASE_URL=postgresql://...
+   npx prisma migrate deploy
+   ```
+   Or in one line (PowerShell): `$env:DATABASE_URL="your-url"; npx prisma migrate deploy`
+
 ## How Snapshots Work
 
 Snapshots are the source of truth for the burndown chart. Each snapshot captures a point-in-time view of progress.
