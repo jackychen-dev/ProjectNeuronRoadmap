@@ -5,6 +5,7 @@ import WorkstreamView from "./workstream-view";
 
 export const dynamic = "force-dynamic";
 
+/** Full include with completion notes but no user join (avoids production errors if User relation/column missing). */
 const fullWorkstreamInclude = {
   initiatives: {
     where: { archivedAt: null },
@@ -18,7 +19,7 @@ const fullWorkstreamInclude = {
           completionNotes: {
             orderBy: { createdAt: "desc" },
             take: 20,
-            include: { user: { select: { id: true, name: true, email: true } } },
+            /* omit user include so production works when SubTaskCompletionNote.userId / User relation is missing */
           },
         },
       },
