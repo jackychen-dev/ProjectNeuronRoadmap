@@ -116,6 +116,11 @@ const STATUS_BAR_COLORS: Record<string, string> = {
 
 /* ─── Helpers: compute from subtasks ──────────────────── */
 
+/** Stable sort so subtask list order never changes after save/refresh. */
+function sortSubTasksByOrder<T extends { id: string; sortOrder: number }>(tasks: T[]): T[] {
+  return [...tasks].sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+}
+
 function computeSubTaskSP(st: SubTask): StoryPointsResult | null {
   if (st.estimatedDays == null || st.estimatedDays <= 0) return null;
   return computeStoryPoints({
@@ -718,26 +723,32 @@ export default function WorkstreamView({
                     )}
 
                     {/* Sub-task column headers */}
-                    {init.subTasks.length > 0 && (
-                      <div className="grid grid-cols-[1fr_60px_80px_44px_80px_80px_32px_32px_32px_40px_1fr_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
-                        <span>Name</span>
-                        <span>Assignee</span>
-                        <span>Assigned Org</span>
-                        <span>Days</span>
-                        <span>Unknowns</span>
-                        <span>Integration</span>
-                        <span>Base</span>
-                        <span>+Unk</span>
-                        <span>+Int</span>
-                        <span>Final</span>
-                        <span>Done %</span>
-                        <span></span>
-                      </div>
-                    )}
-
-                    {init.subTasks.map((st) => (
-                      <SubTaskRow key={st.id} subTask={st} people={people} onUpdate={refresh} trackedSave={trackedSave} />
-                    ))}
+                    {(() => {
+                      const sortedSubTasks = sortSubTasksByOrder(init.subTasks || []);
+                      return (
+                        <>
+                          {sortedSubTasks.length > 0 && (
+                            <div className="grid grid-cols-[1fr_60px_80px_44px_80px_80px_32px_32px_32px_40px_1fr_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
+                              <span>Name</span>
+                              <span>Assignee</span>
+                              <span>Assigned Org</span>
+                              <span>Days</span>
+                              <span>Unknowns</span>
+                              <span>Integration</span>
+                              <span>Base</span>
+                              <span>+Unk</span>
+                              <span>+Int</span>
+                              <span>Final</span>
+                              <span>Done %</span>
+                              <span></span>
+                            </div>
+                          )}
+                          {sortedSubTasks.map((st) => (
+                            <SubTaskRow key={st.id} subTask={st} people={people} onUpdate={refresh} trackedSave={trackedSave} />
+                          ))}
+                        </>
+                      );
+                    })()}
 
                     {/* Sub-task points summary bar + dropdown of all completion comments */}
                     {init.subTasks.length > 0 && (() => {
