@@ -462,7 +462,7 @@ export default function WorkstreamView({
           const rollup = computeTotalPoints(init);
 
           return (
-            <Card key={init.id} className="overflow-hidden">
+            <Card key={init.id} className="overflow-visible">
               {/* ── Initiative Header Row ── */}
               <div
                 className="p-4 cursor-pointer hover:bg-accent/30 transition-colors"
@@ -698,7 +698,7 @@ export default function WorkstreamView({
                   )}
 
                   {/* ── Sub-Tasks Section ── */}
-                  <div className="space-y-2">
+                  <div className="space-y-2 overflow-visible">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <h4 className="text-sm font-bold">
@@ -900,12 +900,15 @@ const SubTaskRow = memo(function SubTaskRow({ subTask: st, people, onUpdate, tra
   }
 
   return (
-    <div className={`rounded border p-1.5 transition-colors group ${
-      isBreakDown ? "border-red-400 bg-red-50 dark:bg-red-950/20" :
-      st.isAddedScope ? "border-purple-300 bg-purple-50/50 dark:bg-purple-950/10" :
-      "hover:bg-accent/20"
-    }`}>
-      <div className="grid grid-cols-[1fr_60px_80px_44px_80px_80px_32px_32px_32px_40px_1fr_28px] gap-0.5 items-center">
+    <div
+      className={`rounded border p-1.5 transition-colors group flex flex-col gap-0 ${
+        isBreakDown ? "border-red-400 bg-red-50 dark:bg-red-950/20" :
+        st.isAddedScope ? "border-purple-300 bg-purple-50/50 dark:bg-purple-950/10" :
+        "hover:bg-accent/20"
+      }`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="grid grid-cols-[1fr_60px_80px_44px_80px_80px_32px_32px_32px_40px_1fr_28px] gap-0.5 items-center min-h-[2rem]">
         {/* Name + Added Scope badge */}
         <div className="min-w-0">
           {editing ? (

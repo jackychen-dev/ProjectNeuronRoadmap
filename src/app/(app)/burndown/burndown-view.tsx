@@ -378,12 +378,49 @@ export default function BurndownView({
 
   const currentPeriodSaved = snapshots.some(s => s.date === currentPeriod.dateKey);
   const lastSnapshotDate = snapshots.length > 0 ? snapshots[snapshots.length - 1]?.date : null;
-  const latestSnapshotDateFormatted = snapshots.length > 0
-    ? (() => {
-        const dates = snapshots.map(s => new Date(s.date).getTime());
-        return new Date(Math.max(...dates)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      })()
-    : null;
+
+  /** Format a snapshot date for "Last updated" (reflects when Update burndown was pressed). */
+  function formatSnapshotDate(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+  /** Latest snapshot date that has data for overall program (updates when Update burndown is pressed). */
+  const overallLastUpdated = useMemo(() => {
+    if (snapshots.length === 0) return null;
+    const latest = snapshots.reduce((best, s) => (s.date > (best?.date ?? "") ? s : best), snapshots[0]);
+    return formatSnapshotDate(latest.date);
+  }, [snapshots]);
+  /** Per-workstream: latest snapshot date that has workstreamData for that ws — only charts that have snapshot data show updated. */
+  const wsLastUpdatedMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ws of workstreams) {
+      let latestDate: string | null = null;
+      for (const snap of snapshots) {
+        if (snap.workstreamData && (snap.workstreamData as Record<string, WsSnapshotEntry>)[ws.id]) {
+          if (!latestDate || snap.date > latestDate) latestDate = snap.date;
+        }
+      }
+      if (latestDate) map.set(ws.id, formatSnapshotDate(latestDate));
+    }
+    return map;
+  }, [workstreams, snapshots]);
+  /** Per-init: latest snapshot date that has subcomponent data for that init (when a specific ws is selected). */
+  const initLastUpdatedMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const ws = workstreams.find(w => w.id === selectedWs);
+    if (!ws || selectedWs === "all") return map;
+    for (const init of ws.initiatives) {
+      let latestDate: string | null = null;
+      for (const snap of snapshots) {
+        if (snap.workstreamData) {
+          const wsEntry = (snap.workstreamData as Record<string, WsSnapshotEntry>)[ws.id];
+          const sub = wsEntry?.subcomponents?.[init.id];
+          if (sub && (!latestDate || snap.date > latestDate)) latestDate = snap.date;
+        }
+      }
+      if (latestDate) map.set(init.id, formatSnapshotDate(latestDate));
+    }
+    return map;
+  }, [workstreams, selectedWs, snapshots]);
 
   /* ── Render helpers ── */
   function renderChart(data: ChartPoint[], height: number) {
@@ -492,7 +529,7 @@ export default function BurndownView({
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle>Overall Burndown</CardTitle>
-                  <span className="text-xs text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
+                  <span className="text-xs text-muted-foreground">Last updated: {overallLastUpdated ?? "—"}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Purple = scope-adjusted ideal · Blue = original ideal · Orange = actual remaining · * = current (unsaved)
@@ -530,7 +567,7 @@ export default function BurndownView({
                     <CardTitle>{wsChart.name} — Burndown</CardTitle>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
+                    <span className="text-muted-foreground">Last updated: {wsLastUpdatedMap.get(ws.id) ?? "—"}</span>
                     <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.scopePoints} pts</span>
                     <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                   </div>
@@ -569,7 +606,7 @@ export default function BurndownView({
                         <CardTitle className="text-sm">{wsChart.name}</CardTitle>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
-                        <span className="text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
+                        <span className="text-muted-foreground">Last updated: {wsLastUpdatedMap.get(ws.id) ?? "—"}</span>
                         <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.scopePoints} pts</span>
                         <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                       </div>
@@ -610,7 +647,7 @@ export default function BurndownView({
                         </div>
                         <span className="text-[10px] font-mono text-muted-foreground">{subLive.completedPoints}/{subLive.scopePoints} ({subPct}%)</span>
                       </div>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">Last updated: {latestSnapshotDateFormatted ?? "—"}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Last updated: {initLastUpdatedMap.get(init.id) ?? "—"}</p>
                     </CardHeader>
                     <CardContent className="px-2 pb-2">
                       <ResponsiveContainer width="100%" height={150}>

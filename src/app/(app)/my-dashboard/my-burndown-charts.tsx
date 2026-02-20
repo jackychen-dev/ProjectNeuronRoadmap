@@ -134,13 +134,11 @@ export default function MyBurndownCharts({
   const currentPeriod = useMemo(() => getCurrentPeriod(), []);
   const program = programs[0];
   const allPeriods = useMemo(() => program ? buildGlobalTimeline(program, workstreams) : [], [program, workstreams]);
-  const latestSnapshotDateFormatted = useMemo(() => {
-    if (snapshots.length === 0) return null;
-    const dates = snapshots.map(s => new Date(s.date).getTime());
-    return new Date(Math.max(...dates)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-  }, [snapshots]);
+  function formatSnapshotDate(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
 
-  // Per-workstream chart data — each workstream uses its own timeline (workstream target date = finish)
+  // Per-workstream chart data — each workstream uses its own timeline; lastUpdated = when that chart last had snapshot data (Update burndown)
   const wsCharts = useMemo(() => {
     if (!program) return [];
     return workstreams.filter(ws => myWsIds.includes(ws.id)).map(ws => {
@@ -148,20 +146,24 @@ export default function MyBurndownCharts({
       let total = 0, completed = 0;
       for (const i of ws.initiatives) for (const t of i.subTasks) { total += t.points; completed += Math.round(t.points * (t.completionPercent / 100)); }
       const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
+      let lastUpdated: string | null = null;
       for (const snap of snapshots) {
         if (snap.workstreamData) {
           const entry = (snap.workstreamData as Record<string, WsSnapshotEntry>)[ws.id];
-          if (entry) byDate.set(snap.date, { totalPoints: entry.totalPoints, completedPoints: entry.completedPoints });
+          if (entry) {
+            byDate.set(snap.date, { totalPoints: entry.totalPoints, completedPoints: entry.completedPoints });
+            if (!lastUpdated || snap.date > lastUpdated) lastUpdated = snap.date;
+          }
         }
       }
       const data = buildChartData(wsPeriods, byDate, total, total - completed, total, currentPeriod);
-      return { id: ws.id, name: ws.name, color: ws.color, total, completed, data };
+      return { id: ws.id, name: ws.name, color: ws.color, total, completed, data, lastUpdated: lastUpdated ? formatSnapshotDate(lastUpdated) : null };
     });
   }, [workstreams, myWsIds, snapshots, program, currentPeriod]);
 
-  // Per-subcomponent chart data for ALL initiatives in the user's workstreams
+  // Per-subcomponent chart data; lastUpdated = when that chart last had snapshot data (Update burndown)
   const initCharts = useMemo(() => {
-    const results: { id: string; name: string; wsName: string; wsColor: string | null; total: number; completed: number; isMine: boolean; data: ChartPoint[] }[] = [];
+    const results: { id: string; name: string; wsName: string; wsColor: string | null; total: number; completed: number; isMine: boolean; data: ChartPoint[]; lastUpdated: string | null }[] = [];
     for (const ws of workstreams) {
       if (!myWsIds.includes(ws.id)) continue;
       for (const init of ws.initiatives) {
@@ -170,15 +172,19 @@ export default function MyBurndownCharts({
         if (total === 0) continue;
         const isMine = myInitIds.includes(init.id);
         const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
+        let lastUpdated: string | null = null;
         for (const snap of snapshots) {
           if (snap.workstreamData) {
             const wsEntry = (snap.workstreamData as Record<string, WsSnapshotEntry>)[ws.id];
             const sub = wsEntry?.subcomponents?.[init.id];
-            if (sub) byDate.set(snap.date, { totalPoints: sub.totalPoints, completedPoints: sub.completedPoints });
+            if (sub) {
+              byDate.set(snap.date, { totalPoints: sub.totalPoints, completedPoints: sub.completedPoints });
+              if (!lastUpdated || snap.date > lastUpdated) lastUpdated = snap.date;
+            }
           }
         }
         const data = buildChartData(allPeriods, byDate, total, total - completed, total, currentPeriod);
-        results.push({ id: init.id, name: init.name, wsName: ws.name, wsColor: ws.color, total, completed, isMine, data });
+        results.push({ id: init.id, name: init.name, wsName: ws.name, wsColor: ws.color, total, completed, isMine, data, lastUpdated: lastUpdated ? formatSnapshotDate(lastUpdated) : null });
       }
     }
     return results;
@@ -205,7 +211,7 @@ export default function MyBurndownCharts({
                       <CardTitle className="text-sm">{ws.name}</CardTitle>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
-                      <span className="text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
+                      <span className="text-muted-foreground">Last updated: {ws.lastUpdated ?? "—"}</span>
                       <span className="font-mono text-muted-foreground">{ws.completed}/{ws.total} pts</span>
                       <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                     </div>
@@ -240,7 +246,7 @@ export default function MyBurndownCharts({
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
                       <span className="text-[9px] text-muted-foreground">{init.wsName}</span>
-                      <span className="text-[9px] text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
+                      <span className="text-[9px] text-muted-foreground">Last updated: {init.lastUpdated ?? "—"}</span>
                     </div>
                   </CardHeader>
                   <CardContent className="px-2 pb-2">
