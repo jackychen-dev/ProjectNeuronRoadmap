@@ -87,10 +87,11 @@ export async function updateSubTaskCompletion(
     where: { id },
     data: { completionPercent: clamped, status },
   });
-  // Only create a note when percent actually changed. Never throw so subtask % update always succeeds and UI refreshes.
+  // Create a note when percent changed and/or user provided a comment. Never throw so subtask update always succeeds.
   const percentChanged = previousPercent !== clamped;
-  if (percentChanged) {
-    const reasonStr = (reason != null && reason.trim() !== "") ? reason.trim() : "";
+  const reasonStr = (reason != null && reason.trim() !== "") ? reason.trim() : "";
+  const shouldCreateNote = percentChanged || reasonStr !== "";
+  if (shouldCreateNote) {
     const baseData = {
       subTaskId: id,
       previousPercent,

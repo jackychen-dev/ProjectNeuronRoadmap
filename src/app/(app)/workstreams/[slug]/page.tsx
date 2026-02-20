@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { serializeForClient } from "@/lib/serialize";
 import { notFound } from "next/navigation";
@@ -114,6 +115,39 @@ export default async function WorkstreamDetailPage({
 
   if (!ws) return notFound();
 
+  // Load completion notes via raw SELECT (no userId) so comments show when using bare/minimal query
+  const initiatives = ws.initiatives as { subTasks: { id: string }[] }[];
+  const subTaskIds = initiatives.flatMap((i) => (i.subTasks || []).map((st) => st.id));
+  const notesBySubTaskId = new Map<string, { id: string; subTaskId: string; previousPercent: number; newPercent: number; reason: string; createdAt: Date }[]>();
+  if (subTaskIds.length > 0) {
+    try {
+      const notes = await prisma.$queryRaw<
+        { id: string; subTaskId: string; previousPercent: number; newPercent: number; reason: string; createdAt: Date }[]
+      >(Prisma.sql`SELECT id, "subTaskId", "previousPercent", "newPercent", reason, "createdAt" FROM "SubTaskCompletionNote" WHERE "subTaskId" IN (${Prisma.join(subTaskIds)}) ORDER BY "createdAt" DESC`);
+      for (const n of notes) {
+        const list = notesBySubTaskId.get(n.subTaskId) ?? [];
+        if (list.length < 20) list.push(n);
+        notesBySubTaskId.set(n.subTaskId, list);
+      }
+    } catch {
+      // Table may not exist in production
+    }
+  }
+  // Merge raw notes into subtasks that have no notes (bare/minimal path); leave full-query result as-is
+  const wsWithNotes = notesBySubTaskId.size > 0 ? {
+    ...ws,
+    initiatives: initiatives.map((init) => ({
+      ...init,
+      subTasks: (init.subTasks || []).map((st) => {
+        const stAny = st as { completionNotes?: unknown[] };
+        const existing = stAny.completionNotes ?? [];
+        const rawNotes = notesBySubTaskId.get(st.id) ?? [];
+        const notes = existing.length > 0 ? existing : rawNotes.map((n) => ({ ...n, user: null }));
+        return { ...st, completionNotes: notes };
+      }),
+    })),
+  } : ws;
+
   let people: { id: string; name: string; initials: string | null }[] = [];
   let users: { id: string; name: string | null; email: string | null }[] = [];
   let openIssues: unknown[] = [];
@@ -162,7 +196,7 @@ export default async function WorkstreamDetailPage({
   type P = Parameters<typeof WorkstreamView>[0];
   return (
     <WorkstreamView
-      workstream={serializeForClient(ws) as unknown as P["workstream"]}
+      workstream={serializeForClient(wsWithNotes) as unknown as P["workstream"]}
       people={serializeForClient(people) as unknown as P["people"]}
       openIssues={serializeForClient(openIssues) as unknown as P["openIssues"]}
       users={serializeForClient(users) as unknown as P["users"]}
