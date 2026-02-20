@@ -134,6 +134,11 @@ export default function MyBurndownCharts({
   const currentPeriod = useMemo(() => getCurrentPeriod(), []);
   const program = programs[0];
   const allPeriods = useMemo(() => program ? buildGlobalTimeline(program, workstreams) : [], [program, workstreams]);
+  const latestSnapshotDateFormatted = useMemo(() => {
+    if (snapshots.length === 0) return null;
+    const dates = snapshots.map(s => new Date(s.date).getTime());
+    return new Date(Math.max(...dates)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }, [snapshots]);
 
   // Per-workstream chart data — each workstream uses its own timeline (workstream target date = finish)
   const wsCharts = useMemo(() => {
@@ -200,6 +205,7 @@ export default function MyBurndownCharts({
                       <CardTitle className="text-sm">{ws.name}</CardTitle>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
                       <span className="font-mono text-muted-foreground">{ws.completed}/{ws.total} pts</span>
                       <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                     </div>
@@ -232,7 +238,10 @@ export default function MyBurndownCharts({
                       </div>
                       <span className="text-[10px] font-mono text-muted-foreground">{init.completed}/{init.total} ({pct}%)</span>
                     </div>
-                    <span className="text-[9px] text-muted-foreground">{init.wsName}</span>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <span className="text-[9px] text-muted-foreground">{init.wsName}</span>
+                      <span className="text-[9px] text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
+                    </div>
                   </CardHeader>
                   <CardContent className="px-2 pb-2">
                     <MiniChart data={init.data} height={150} />

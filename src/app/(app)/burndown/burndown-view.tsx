@@ -378,6 +378,12 @@ export default function BurndownView({
 
   const currentPeriodSaved = snapshots.some(s => s.date === currentPeriod.dateKey);
   const lastSnapshotDate = snapshots.length > 0 ? snapshots[snapshots.length - 1]?.date : null;
+  const latestSnapshotDateFormatted = snapshots.length > 0
+    ? (() => {
+        const dates = snapshots.map(s => new Date(s.date).getTime());
+        return new Date(Math.max(...dates)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      })()
+    : null;
 
   /* ── Render helpers ── */
   function renderChart(data: ChartPoint[], height: number) {
@@ -484,7 +490,10 @@ export default function BurndownView({
           return (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle>Overall Burndown</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Overall Burndown</CardTitle>
+                  <span className="text-xs text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Purple = scope-adjusted ideal · Blue = original ideal · Orange = actual remaining · * = current (unsaved)
                 </p>
@@ -521,6 +530,7 @@ export default function BurndownView({
                     <CardTitle>{wsChart.name} — Burndown</CardTitle>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
                     <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.scopePoints} pts</span>
                     <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                   </div>
@@ -559,6 +569,7 @@ export default function BurndownView({
                         <CardTitle className="text-sm">{wsChart.name}</CardTitle>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground">Last updated: {latestSnapshotDateFormatted ?? "—"}</span>
                         <span className="font-mono text-muted-foreground">{live.completedPoints}/{live.scopePoints} pts</span>
                         <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
                       </div>
@@ -599,6 +610,7 @@ export default function BurndownView({
                         </div>
                         <span className="text-[10px] font-mono text-muted-foreground">{subLive.completedPoints}/{subLive.scopePoints} ({subPct}%)</span>
                       </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Last updated: {latestSnapshotDateFormatted ?? "—"}</p>
                     </CardHeader>
                     <CardContent className="px-2 pb-2">
                       <ResponsiveContainer width="100%" height={150}>

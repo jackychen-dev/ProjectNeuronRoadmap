@@ -303,14 +303,15 @@ function EditableSubTaskRow({ subTask: initial }: { subTask: SubTaskData }) {
               const val = Math.max(0, Math.min(100, parseInt(completionInput) || 0));
               setCompletionInput(String(val));
               const reason = completionReason.trim();
-              if (reason) {
+              const percentChanged = val !== st.completionPercent;
+              if (percentChanged) {
                 setOptimisticNotes((prev) => [
                   ...prev,
                   {
                     id: `opt-${Date.now()}`,
                     previousPercent: st.completionPercent,
                     newPercent: val,
-                    reason,
+                    reason: reason || "",
                     createdAt: new Date().toISOString(),
                   },
                 ]);
@@ -339,7 +340,7 @@ function EditableSubTaskRow({ subTask: initial }: { subTask: SubTaskData }) {
                 <div key={n.id} className="py-1 border-b border-muted/50 last:border-0">
                   <span className="font-medium">{n.previousPercent}% → {n.newPercent}%</span>
                   {" — "}
-                  <span>{n.reason}</span>
+                  <span>{n.reason || "—"}</span>
                   <span className="text-muted-foreground ml-1">
                     {new Date(n.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
                     {"user" in n && n.user && <> · by {n.user.name ?? n.user.email}</>}
