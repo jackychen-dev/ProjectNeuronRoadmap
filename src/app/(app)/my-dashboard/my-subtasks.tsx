@@ -295,7 +295,8 @@ function EditableSubTaskRow({ subTask: initial }: { subTask: SubTaskData }) {
               setCompletionInput(String(val));
               const reason = completionReason.trim();
               const percentChanged = val !== st.completionPercent;
-              if (percentChanged) {
+              const hasComment = reason !== "";
+              if (percentChanged || hasComment) {
                 setOptimisticNotes((prev) => [
                   ...prev,
                   {

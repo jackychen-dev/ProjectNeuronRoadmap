@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { serializeForClient } from "@/lib/serialize";
 import { getServerSession } from "next-auth";
@@ -80,6 +81,29 @@ export default async function MyDashboardPage() {
     ...myInitiatives.map((i: any) => i.workstream?.programId),
     ...mySubTasks.map((st: any) => st.initiative?.workstream?.programId),
   ].filter(Boolean))];
+
+  // Load completion notes for assigned subtasks (raw SELECT, no userId) so comments/history show like workstream
+  let mySubTasksWithNotes = mySubTasks;
+  if (mySubTasks.length > 0) {
+    const subTaskIds = mySubTasks.map((st: any) => st.id);
+    const notesBySubTaskId = new Map<string, { id: string; subTaskId: string; previousPercent: number; newPercent: number; reason: string; createdAt: Date }[]>();
+    try {
+      const notes = await prisma.$queryRaw<
+        { id: string; subTaskId: string; previousPercent: number; newPercent: number; reason: string; createdAt: Date }[]
+      >(Prisma.sql`SELECT id, "subTaskId", "previousPercent", "newPercent", reason, "createdAt" FROM "SubTaskCompletionNote" WHERE "subTaskId" IN (${Prisma.join(subTaskIds)}) ORDER BY "createdAt" DESC`);
+      for (const n of notes) {
+        const list = notesBySubTaskId.get(n.subTaskId) ?? [];
+        if (list.length < 20) list.push(n);
+        notesBySubTaskId.set(n.subTaskId, list);
+      }
+      mySubTasksWithNotes = mySubTasks.map((st: any) => ({
+        ...st,
+        completionNotes: (notesBySubTaskId.get(st.id) ?? []).map((n) => ({ ...n, user: null })),
+      }));
+    } catch {
+      // Table may not exist; keep completionNotes: [] from loadBatch1
+    }
+  }
 
   // ── Batch 2: workstreams, snapshots, programs, issues (with fallback on error) ──
   let myWorkstreamsForBurn: Awaited<ReturnType<typeof loadBatch2>>[0] = [];
@@ -277,7 +301,7 @@ export default async function MyDashboardPage() {
         </CardContent>
       </Card>
 
-      <MySubtasksList subtasks={serializeForClient(mySubTasks) as unknown as Parameters<typeof MySubtasksList>[0]["subtasks"]} />
+      <MySubtasksList subtasks={serializeForClient(mySubTasksWithNotes) as unknown as Parameters<typeof MySubtasksList>[0]["subtasks"]} />
 
       {myWsIds.length > 0 && (
         <MyBurndownCharts
