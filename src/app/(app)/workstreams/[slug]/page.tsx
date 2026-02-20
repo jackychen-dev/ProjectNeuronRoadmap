@@ -76,32 +76,50 @@ export default async function WorkstreamDetailPage({
 
   if (!ws) return notFound();
 
-  const people = await prisma.person.findMany({ orderBy: { name: "asc" } });
+  let people: { id: string; name: string; initials: string | null }[] = [];
+  let users: { id: string; name: string | null; email: string | null }[] = [];
+  let openIssues: unknown[] = [];
+  let burnSnapshots: unknown[] = [];
 
-  const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true },
-    orderBy: { name: "asc" },
-  });
-
-  const openIssues = await prisma.openIssue.findMany({
-    where: { workstreamId: ws.id, resolvedAt: null },
-    include: {
-      subTask: { select: { id: true, name: true, initiativeId: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const burnSnapshots = await prisma.burnSnapshot.findMany({
-    where: { programId: ws.programId },
-    orderBy: { date: "asc" },
-    select: {
-      id: true,
-      date: true,
-      totalPoints: true,
-      completedPoints: true,
-      workstreamData: true,
-    },
-  });
+  try {
+    people = await prisma.person.findMany({ orderBy: { name: "asc" } });
+  } catch {
+    // Person table or query may fail on older DB
+  }
+  try {
+    users = await prisma.user.findMany({
+      select: { id: true, name: true, email: true },
+      orderBy: { name: "asc" },
+    });
+  } catch {
+    // User query may fail
+  }
+  try {
+    openIssues = await prisma.openIssue.findMany({
+      where: { workstreamId: ws.id, resolvedAt: null },
+      include: {
+        subTask: { select: { id: true, name: true, initiativeId: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  } catch {
+    // OpenIssue or relations may be missing in production
+  }
+  try {
+    burnSnapshots = await prisma.burnSnapshot.findMany({
+      where: { programId: ws.programId },
+      orderBy: { date: "asc" },
+      select: {
+        id: true,
+        date: true,
+        totalPoints: true,
+        completedPoints: true,
+        workstreamData: true,
+      },
+    });
+  } catch {
+    // BurnSnapshot may be missing
+  }
 
   type P = Parameters<typeof WorkstreamView>[0];
   return (

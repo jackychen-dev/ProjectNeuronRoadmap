@@ -111,9 +111,18 @@ export default async function DashboardPage() {
   } catch {
     try {
       data = await loadDashboardDataFallback() as Awaited<ReturnType<typeof loadDashboardData>>;
-    } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      throw new Error(`Dashboard data load failed: ${err.message}`, { cause: err });
+    } catch {
+      // Both loads failed (e.g. production DB missing tables). Render with empty data so site still loads.
+      data = [
+        null,
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+      ] as Awaited<ReturnType<typeof loadDashboardData>>;
     }
   }
 
