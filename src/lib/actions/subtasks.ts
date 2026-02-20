@@ -87,10 +87,9 @@ export async function updateSubTaskCompletion(
     where: { id },
     data: { completionPercent: clamped, status },
   });
-  // Only create a note when percent actually changed (show last saved → current, e.g. 20→100)
+  // Only create a note when percent actually changed. Never throw so subtask % update always succeeds and UI refreshes.
   const percentChanged = previousPercent !== clamped;
   if (percentChanged) {
-    const session = await getServerSession(authOptions);
     const reasonStr = (reason != null && reason.trim() !== "") ? reason.trim() : "";
     const baseData = {
       subTaskId: id,
@@ -99,18 +98,19 @@ export async function updateSubTaskCompletion(
       reason: reasonStr,
     };
     try {
-      // Prefer create without userId so production DBs without SubTaskCompletionNote.userId column still work
       await (prisma as any).subTaskCompletionNote.create({ data: baseData });
     } catch (noteErr) {
       const msg = noteErr instanceof Error ? noteErr.message : String(noteErr);
-      const missingUserIdColumn = msg.includes("userId") || msg.includes("Unknown arg");
-      if (missingUserIdColumn) {
-        // Production DB may not have userId column; insert only columns that exist
-        const noteId = randomUUID();
-        await prisma.$executeRaw`
-          INSERT INTO "SubTaskCompletionNote" (id, "subTaskId", "previousPercent", "newPercent", reason, "createdAt")
-          VALUES (${noteId}, ${id}, ${previousPercent}, ${clamped}, ${reasonStr}, now())
-        `;
+      if (msg.includes("userId") || msg.includes("Unknown arg") || msg.includes("does not exist")) {
+        try {
+          const noteId = randomUUID();
+          await prisma.$executeRaw`
+            INSERT INTO "SubTaskCompletionNote" (id, "subTaskId", "previousPercent", "newPercent", reason, "createdAt")
+            VALUES (${noteId}, ${id}, ${previousPercent}, ${clamped}, ${reasonStr}, now())
+          `;
+        } catch {
+          // Table/columns may differ in production; skip note so save still succeeds
+        }
       } else {
         throw noteErr;
       }
