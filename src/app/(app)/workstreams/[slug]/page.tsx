@@ -62,24 +62,14 @@ export default async function WorkstreamDetailPage({
   type WsResult = { id: string; programId: string; initiatives: unknown[]; partnerLinks: unknown[] };
   let ws: WsResult | null = null;
 
-  // Try bare first (only workstream + initiatives + subTasks). Never touches SubTaskCompletionNote, milestones, partnerLinks, dependsOn.
+  // Try full query first (includes completionNotes so save-progress comments show). Fall back if schema is missing columns.
   try {
-    const bare = await prisma.workstream.findFirst({
+    const full = await prisma.workstream.findFirst({
       where: { slug },
-      include: bareWorkstreamInclude as any,
+      include: fullWorkstreamInclude as any,
     });
-    if (bare && "initiatives" in bare && Array.isArray(bare.initiatives)) {
-      ws = {
-        ...bare,
-        partnerLinks: [],
-        initiatives: (bare.initiatives as unknown as { subTasks: object[] }[]).map((init) => ({
-          ...init,
-          milestones: [],
-          partnerLinks: [],
-          dependsOn: [],
-          subTasks: (init.subTasks || []).map((st) => ({ ...st, completionNotes: [] })),
-        })),
-      } as unknown as WsResult;
+    if (full && "initiatives" in full && Array.isArray(full.initiatives)) {
+      ws = full as unknown as WsResult;
     }
   } catch {
     try {
@@ -97,11 +87,30 @@ export default async function WorkstreamDetailPage({
         } as unknown as WsResult;
       }
     } catch {
-      // Both failed
+      try {
+        const bare = await prisma.workstream.findFirst({
+          where: { slug },
+          include: bareWorkstreamInclude as any,
+        });
+        if (bare && "initiatives" in bare && Array.isArray(bare.initiatives)) {
+          ws = {
+            ...bare,
+            partnerLinks: [],
+            initiatives: (bare.initiatives as unknown as { subTasks: object[] }[]).map((init) => ({
+              ...init,
+              milestones: [],
+              partnerLinks: [],
+              dependsOn: [],
+              subTasks: (init.subTasks || []).map((st) => ({ ...st, completionNotes: [] })),
+            })),
+          } as unknown as WsResult;
+        }
+      } catch {
+        // All failed
+      }
     }
   }
 
-  // Do not run full query here — it requires SubTaskCompletionNote.userId. Run migrations in production instead.
   if (!ws) return notFound();
 
   let people: { id: string; name: string; initials: string | null }[] = [];
