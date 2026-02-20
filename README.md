@@ -76,10 +76,13 @@ npm run dev
    - `NEXTAUTH_SECRET` — Random secret for session signing (e.g. `openssl rand -base64 32`).
    - `NEXTAUTH_URL` — Your app URL, e.g. `https://your-project.vercel.app` (no trailing slash).
 
-2. **Database**: Run migrations against the production DB (once per deployment if schema changed):
+2. **Database (required)**: Production must have the same schema as your code. Run migrations against the production DB so columns and tables (e.g. `SubTaskCompletionNote.userId`) are not missing:
    ```bash
+   # Use the same DATABASE_URL as in Vercel → Settings → Environment Variables
    DATABASE_URL="your-production-url" npx prisma migrate deploy
    ```
+   PowerShell: `$env:DATABASE_URL="postgresql://..."; npx prisma migrate deploy`  
+   Until this is run, workstream pages load with minimal data (e.g. completion note history and "by [name]" will be empty).
 
 3. If you see "Application error: a server-side exception has occurred", check **Vercel → Project → Logs** (or the deployment’s Function logs) for the real error. Missing `DATABASE_URL` or an unmigrated DB are common causes.
 
