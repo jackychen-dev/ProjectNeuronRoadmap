@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
@@ -90,20 +91,26 @@ export async function updateSubTaskCompletion(
   const percentChanged = previousPercent !== clamped;
   if (percentChanged) {
     const session = await getServerSession(authOptions);
+    const reasonStr = (reason != null && reason.trim() !== "") ? reason.trim() : "";
     const baseData = {
       subTaskId: id,
       previousPercent,
       newPercent: clamped,
-      reason: (reason != null && reason.trim() !== "") ? reason.trim() : "",
+      reason: reasonStr,
     };
     try {
-      await (prisma as any).subTaskCompletionNote.create({
-        data: session?.user?.id ? { ...baseData, userId: session.user.id } : baseData,
-      });
+      // Prefer create without userId so production DBs without SubTaskCompletionNote.userId column still work
+      await (prisma as any).subTaskCompletionNote.create({ data: baseData });
     } catch (noteErr) {
       const msg = noteErr instanceof Error ? noteErr.message : String(noteErr);
-      if (msg.includes("userId") || msg.includes("Unknown arg")) {
-        await (prisma as any).subTaskCompletionNote.create({ data: baseData });
+      const missingUserIdColumn = msg.includes("userId") || msg.includes("Unknown arg");
+      if (missingUserIdColumn) {
+        // Production DB may not have userId column; insert only columns that exist
+        const noteId = randomUUID();
+        await prisma.$executeRaw`
+          INSERT INTO "SubTaskCompletionNote" (id, "subTaskId", "previousPercent", "newPercent", reason, "createdAt")
+          VALUES (${noteId}, ${id}, ${previousPercent}, ${clamped}, ${reasonStr}, now())
+        `;
       } else {
         throw noteErr;
       }
