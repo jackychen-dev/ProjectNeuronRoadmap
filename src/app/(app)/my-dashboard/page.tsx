@@ -81,8 +81,9 @@ export default async function MyDashboardPage() {
 
   let newReplyCount = 0;
   for (const issue of myIssues) {
-    if (issue.comments?.length > 0) {
-      const lastComment = issue.comments[issue.comments.length - 1].createdAt;
+    const comments = (issue as { comments?: { createdAt: Date }[] }).comments;
+    if (comments && comments.length > 0) {
+      const lastComment = comments[comments.length - 1].createdAt;
       const lastSeen = seenMap.get(issue.id);
       if (!lastSeen || new Date(lastComment) > new Date(lastSeen)) {
         newReplyCount++;
@@ -299,9 +300,9 @@ export default async function MyDashboardPage() {
             </p>
           ) : (
             <DashboardOpenIssues
-              issues={serializeForClient(myIssues) as Parameters<typeof DashboardOpenIssues>[0]["issues"]}
-              people={serializeForClient(allPeople) as Parameters<typeof DashboardOpenIssues>[0]["people"]}
-              seen={serializeForClient(seen) as Parameters<typeof DashboardOpenIssues>[0]["seen"]}
+              issues={serializeForClient(myIssues) as unknown as Parameters<typeof DashboardOpenIssues>[0]["issues"]}
+              people={serializeForClient(allPeople) as unknown as Parameters<typeof DashboardOpenIssues>[0]["people"]}
+              seen={serializeForClient(seen) as unknown as Parameters<typeof DashboardOpenIssues>[0]["seen"]}
             />
           )}
         </CardContent>
@@ -396,7 +397,7 @@ async function loadBatch2(
           ...(person ? [{ assignees: { some: { personId: person.id } } }] : []),
           ...(person ? [{ comments: { some: { mentions: { some: { personId: person.id } } } } }] : []),
         ],
-      } as const;
+      };
       try {
         return await prisma.openIssue.findMany({
           where,

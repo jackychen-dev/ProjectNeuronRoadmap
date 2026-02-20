@@ -77,8 +77,8 @@ export default function MyMentions({
   mentions?: MentionData[] | null;
   people?: PersonRef[] | null;
 }) {
-  const safeMentions = Array.isArray(mentions) ? mentions : [];
-  const safePeople = Array.isArray(people) ? people : [];
+  const safeMentions = useMemo(() => (Array.isArray(mentions) ? mentions : []), [mentions]);
+  const safePeople = useMemo(() => (Array.isArray(people) ? people : []), [people]);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const trackedSave = useTrackedSave();

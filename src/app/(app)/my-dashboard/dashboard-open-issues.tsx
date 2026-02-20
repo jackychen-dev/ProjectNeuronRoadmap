@@ -445,9 +445,9 @@ export function DashboardOpenIssues({
     router.refresh();
   }
 
-  const safeIssues = Array.isArray(issues) ? issues : [];
-  const safePeople = Array.isArray(people) ? people : [];
-  const safeSeen = Array.isArray(seen) ? seen : [];
+  const safeIssues = useMemo(() => (Array.isArray(issues) ? issues : []), [issues]);
+  const safePeople = useMemo(() => (Array.isArray(people) ? people : []), [people]);
+  const safeSeen = useMemo(() => (Array.isArray(seen) ? seen : []), [seen]);
   const seenMap = useMemo(() => new Map(safeSeen.map((s) => [s.issueId, s.lastSeenAt])), [safeSeen]);
 
   return (
