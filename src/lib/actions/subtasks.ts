@@ -86,13 +86,15 @@ export async function updateSubTaskCompletion(
     where: { id },
     data: { completionPercent: clamped, status },
   });
-  if (reason != null && reason.trim() !== "") {
+  // Only create a note when percent actually changed (show last saved → current, e.g. 20→100)
+  const percentChanged = previousPercent !== clamped;
+  if (percentChanged) {
     const session = await getServerSession(authOptions);
     const baseData = {
       subTaskId: id,
       previousPercent,
       newPercent: clamped,
-      reason: reason.trim(),
+      reason: (reason != null && reason.trim() !== "") ? reason.trim() : "",
     };
     try {
       await (prisma as any).subTaskCompletionNote.create({

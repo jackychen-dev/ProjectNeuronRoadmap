@@ -98,7 +98,12 @@ function EditableSubTaskRow({ subTask: initial }: { subTask: SubTaskData }) {
 
   const displayNotes = useMemo(() => {
     const combined = [...(st.completionNotes ?? []), ...optimisticNotes];
-    return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Stable sort: newest first, then by id so order doesn't flip when timestamps tie or data refreshes
+    return combined.sort((a, b) => {
+      const t = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      if (t !== 0) return t;
+      return (a.id || "").localeCompare(b.id || "");
+    });
   }, [st.completionNotes, optimisticNotes]);
 
   function persistEstimation(overrides?: { days?: number | null; unknowns?: string | null; integration?: string | null }) {
