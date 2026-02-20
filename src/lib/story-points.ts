@@ -27,13 +27,14 @@ export const FIBONACCI_ANCHORS = [1, 3, 5, 8, 13, 21] as const;
 
 export function basePointsFromDays(days: number): { base: number; flag21Plus: boolean } {
   if (days <= 0) return { base: 0, flag21Plus: false };
-  if (days >= 14) return { base: 21, flag21Plus: true };
+  if (days >= 30) return { base: 21, flag21Plus: true };
   if (days <= 1) return { base: 1, flag21Plus: false };
   if (days <= 3) return { base: 3, flag21Plus: false };
   if (days <= 5) return { base: 5, flag21Plus: false };
   if (days <= 8) return { base: 8, flag21Plus: false };
   if (days <= 13) return { base: 13, flag21Plus: false };
-  return { base: 21, flag21Plus: true };
+  // 14–29 days → 21 points (no break-down); 30+ → 21+
+  return { base: 21, flag21Plus: false };
 }
 
 // ── Unknowns Adjustment ────────────────────────────
@@ -128,7 +129,7 @@ export function computeStoryPoints(input: StoryPointsInput): StoryPointsResult {
 
   const biasUp = input.unknowns === "Very High / Exploratory";
 
-  if (flag21Plus || input.days >= 14) {
+  if (flag21Plus || input.days >= 30) {
     flags.push("break_down_required");
     if (biasUp) flags.push("very_high_unknowns");
     return {

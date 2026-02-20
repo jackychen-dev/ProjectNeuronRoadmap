@@ -238,6 +238,7 @@ export function OpenIssuesView({
               variant={filterMineOnly ? "default" : "outline"}
               className="text-xs"
               onClick={() => setFilterMineOnly((v) => !v)}
+              title="Same set as Open Issues on My Dashboard"
             >
               My issues
             </Button>

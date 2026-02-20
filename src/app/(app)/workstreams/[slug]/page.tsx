@@ -19,7 +19,17 @@ export default async function WorkstreamDetailPage({
         include: {
           milestones: { orderBy: { date: "asc" } },
           partnerLinks: { include: { partner: true } },
-          subTasks: { orderBy: { sortOrder: "asc" } },
+          subTasks: {
+            orderBy: { sortOrder: "asc" },
+            include: {
+              // Completion notes + author for "by [name]" in UI
+              completionNotes: {
+                orderBy: { createdAt: "desc" },
+                take: 20,
+                include: { user: { select: { id: true, name: true, email: true } } },
+              },
+            },
+          },
           dependsOn: { include: { dependsOn: { include: { workstream: true } } } },
         },
       },

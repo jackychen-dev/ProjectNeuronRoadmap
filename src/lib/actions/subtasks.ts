@@ -1,6 +1,8 @@
 "use server";
 
+import { getServerSession } from "next-auth";
 import { prisma } from "@/lib/prisma";
+import { authOptions } from "@/lib/auth";
 import { subTaskSchema } from "@/lib/validations";
 import { revalidatePath } from "next/cache";
 
@@ -31,6 +33,7 @@ export async function createSubTask(data: unknown) {
     } as Parameters<typeof prisma.subTask.create>[0]["data"],
   });
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
   return subTask;
 }
 
@@ -52,6 +55,7 @@ export async function updateSubTask(id: string, data: Partial<{
       data,
     });
     revalidatePath("/workstreams");
+    revalidatePath("/my-dashboard");
     return subTask;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -69,14 +73,42 @@ export async function updateSubTask(id: string, data: Partial<{
   }
 }
 
-export async function updateSubTaskCompletion(id: string, completionPercent: number) {
+export async function updateSubTaskCompletion(
+  id: string,
+  completionPercent: number,
+  reason?: string | null
+) {
   const clamped = Math.max(0, Math.min(100, completionPercent));
   const status = clamped === 100 ? "DONE" : clamped > 0 ? "IN_PROGRESS" : "NOT_STARTED";
+  const existing = await prisma.subTask.findUnique({ where: { id }, select: { completionPercent: true } });
+  const previousPercent = existing?.completionPercent ?? 0;
   const subTask = await prisma.subTask.update({
     where: { id },
     data: { completionPercent: clamped, status },
   });
+  if (reason != null && reason.trim() !== "") {
+    const session = await getServerSession(authOptions);
+    const baseData = {
+      subTaskId: id,
+      previousPercent,
+      newPercent: clamped,
+      reason: reason.trim(),
+    };
+    try {
+      await (prisma as any).subTaskCompletionNote.create({
+        data: session?.user?.id ? { ...baseData, userId: session.user.id } : baseData,
+      });
+    } catch (noteErr) {
+      const msg = noteErr instanceof Error ? noteErr.message : String(noteErr);
+      if (msg.includes("userId") || msg.includes("Unknown arg")) {
+        await (prisma as any).subTaskCompletionNote.create({ data: baseData });
+      } else {
+        throw noteErr;
+      }
+    }
+  }
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
   return subTask;
 }
 
@@ -94,6 +126,7 @@ export async function updateSubTaskEstimation(
     data,
   });
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
   return subTask;
 }
 
@@ -104,6 +137,7 @@ export async function toggleSubTaskAddedScope(id: string, isAddedScope: boolean)
   });
   revalidatePath("/workstreams");
   revalidatePath("/burndown");
+  revalidatePath("/my-dashboard");
   return subTask;
 }
 
@@ -120,4 +154,5 @@ export async function updateSubTaskAssignee(id: string, assigneeId: string | nul
 export async function deleteSubTask(id: string) {
   await prisma.subTask.delete({ where: { id } });
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
 }

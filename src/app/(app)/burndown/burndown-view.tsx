@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { saveMonthlySnapshot } from "@/lib/actions/snapshots";
-import { getCurrentPeriod, getMonthlyPeriods, type BurnPeriod } from "@/lib/burn-periods";
+import { getCurrentPeriod, getMonthlyPeriods, parseTargetMonth, type BurnPeriod } from "@/lib/burn-periods";
 import { buildTimeline, buildChartData, type ChartPoint as SharedChartPoint, type ProgramRef as SharedProgramRef } from "@/lib/burndown-chart-data";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
@@ -257,32 +257,45 @@ export default function BurndownView({
     for (const ws of workstreams) {
       const live = wsLiveTotals.get(ws.id)!;
 
-      // Workstream-specific timeline: earliest start → latest end across its initiatives
-      let wsStartYear = allPeriods[0]?.year;
-      let wsStartMonth = allPeriods[0]?.month;
-      let wsEndYear = allPeriods[allPeriods.length - 1]?.year;
-      let wsEndMonth = allPeriods[allPeriods.length - 1]?.month;
-      let hasBounds = false;
+      // Workstream-specific timeline: use initiative planned start/end from roadmap, or workstream target date, so each chart reflects workstream/roadmap dates
+      const firstPeriod = allPeriods[0];
+      const lastPeriod = allPeriods[allPeriods.length - 1];
+      let wsStartYear = firstPeriod?.year ?? new Date().getFullYear();
+      let wsStartMonth = firstPeriod?.month ?? 1;
+      let wsEndYear = lastPeriod?.year ?? new Date().getFullYear();
+      let wsEndMonth = lastPeriod?.month ?? 12;
+      let hasStart = false;
+      let hasEnd = false;
       for (const init of ws.initiatives) {
         if (orgFilter !== "all" && !initiativeHasMatchingSubTasks.has(init.id)) continue;
         if (init.plannedStartMonth) {
           const [sy, sm] = init.plannedStartMonth.split("-").map(Number);
-          if (!hasBounds || sy < wsStartYear || (sy === wsStartYear && sm < wsStartMonth)) {
+          if (!hasStart || sy < wsStartYear || (sy === wsStartYear && sm < wsStartMonth)) {
             wsStartYear = sy;
             wsStartMonth = sm;
           }
-          hasBounds = true;
+          hasStart = true;
         }
         if (init.plannedEndMonth) {
           const [ey, em] = init.plannedEndMonth.split("-").map(Number);
-          if (!hasBounds || ey > wsEndYear || (ey === wsEndYear && em > wsEndMonth)) {
+          if (!hasEnd || ey > wsEndYear || (ey === wsEndYear && em > wsEndMonth)) {
             wsEndYear = ey;
             wsEndMonth = em;
           }
-          hasBounds = true;
+          hasEnd = true;
         }
       }
-      const wsPeriods = hasBounds && wsStartYear && wsStartMonth && wsEndYear && wsEndMonth
+      // If no initiative end dates, use workstream target completion date (from workstreams page)
+      if (!hasEnd && ws.targetCompletionDate) {
+        const parsed = parseTargetMonth(ws.targetCompletionDate);
+        if (parsed) {
+          wsEndYear = parsed.year;
+          wsEndMonth = parsed.month;
+          hasEnd = true;
+        }
+      }
+      // If no initiative start dates, keep program start (firstPeriod); ensure we have a valid range
+      const wsPeriods = (hasStart || hasEnd || ws.targetCompletionDate) && wsStartYear && wsStartMonth && wsEndYear && wsEndMonth && (wsStartYear < wsEndYear || (wsStartYear === wsEndYear && wsStartMonth <= wsEndMonth))
         ? getMonthlyPeriods(wsStartYear, wsStartMonth, wsEndYear, wsEndMonth)
         : allPeriods;
 

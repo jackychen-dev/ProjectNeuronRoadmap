@@ -9,7 +9,7 @@ export function Header() {
   const { data: session } = useSession();
 
   return (
-    <header className="fixed left-64 right-0 top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="fixed left-64 right-0 top-0 z-[90] flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex items-center gap-4">
         <span className="text-sm text-muted-foreground">
           Project Neuron Program Hub

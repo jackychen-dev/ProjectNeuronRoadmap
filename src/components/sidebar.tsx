@@ -40,7 +40,7 @@ export function Sidebar() {
   const [docsOpen, setDocsOpen] = useState(pathname?.startsWith("/docs") || false);
 
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r bg-card overflow-y-auto">
+    <aside className="fixed left-0 top-0 z-[100] h-screen w-64 border-r bg-card overflow-y-auto">
       <div className="flex h-16 items-center border-b px-5">
         <Link href="/dashboard" className="flex items-center gap-2.5 font-bold text-lg">
           <span className="text-base">🧠</span>

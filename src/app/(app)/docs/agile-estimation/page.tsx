@@ -119,7 +119,7 @@ export default function AgileEstimationPage() {
                   </TableRow>
                 ))}
                 <TableRow className="bg-blue-50/50 dark:bg-blue-950/20">
-                  <TableCell className="text-sm">14+ days</TableCell>
+                  <TableCell className="text-sm">30+ days</TableCell>
                   <TableCell className="text-sm text-right">
                     <span className="text-red-600 dark:text-red-400 font-semibold">21+ (must break down)</span>
                   </TableCell>
@@ -185,7 +185,7 @@ export default function AgileEstimationPage() {
                 Final = Base + Unknowns Add + Integration Add
               </p>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground text-sm">
-                <li>If estimated duration <strong className="text-foreground">≥&nbsp;14 days</strong>, points = <Badge variant="destructive" className="font-mono text-[10px]">21+</Badge> and show <em>&ldquo;Break this down&rdquo;</em> warning.</li>
+                <li>If estimated duration <strong className="text-foreground">≥&nbsp;30 days</strong>, points = <Badge variant="destructive" className="font-mono text-[10px]">21+</Badge> and show <em>&ldquo;Break this down&rdquo;</em> warning.</li>
                 <li>If unknowns = &ldquo;Very High / Exploratory&rdquo;, show <em>&ldquo;Consider a spike / split&rdquo;</em> warning.</li>
               </ul>
             </CardContent>

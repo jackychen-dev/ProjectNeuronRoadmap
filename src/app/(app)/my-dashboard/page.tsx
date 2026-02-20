@@ -10,6 +10,7 @@ import Link from "next/link";
 import MySubtasksList from "./my-subtasks";
 import MyBurndownCharts from "./my-burndown-charts";
 import MyMentions from "./my-mentions";
+import { DashboardOpenIssues } from "./dashboard-open-issues";
 import { getMentionsForPerson } from "@/lib/actions/open-issues";
 
 export const dynamic = "force-dynamic";
@@ -81,7 +82,7 @@ export default async function MyDashboardPage() {
   let newReplyCount = 0;
   for (const issue of myIssues) {
     if (issue.comments?.length > 0) {
-      const lastComment = issue.comments[0].createdAt;
+      const lastComment = issue.comments[issue.comments.length - 1].createdAt;
       const lastSeen = seenMap.get(issue.id);
       if (!lastSeen || new Date(lastComment) > new Date(lastSeen)) {
         newReplyCount++;
@@ -258,7 +259,7 @@ export default async function MyDashboardPage() {
         </CardContent>
       </Card>
 
-      <MySubtasksList subtasks={serializeForClient(mySubTasks)} />
+      <MySubtasksList subtasks={serializeForClient(mySubTasks) as unknown as Parameters<typeof MySubtasksList>[0]["subtasks"]} />
 
       {myWsIds.length > 0 && (
         <MyBurndownCharts
@@ -275,33 +276,36 @@ export default async function MyDashboardPage() {
         people={serializeForClient(allPeople) as unknown as Parameters<typeof MyMentions>[0]["people"]}
       />
 
-      {myIssues.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Open Issues on My Items</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {myIssues.map((issue: any) => {
-                const lastSeen = seenMap.get(issue.id);
-                const hasNewReply = issue.comments?.length > 0 && (!lastSeen || new Date(issue.comments[0].createdAt) > new Date(lastSeen));
-                return (
-                  <Link key={issue.id} href="/open-issues" className="block">
-                    <div className={`border rounded-lg p-3 hover:bg-accent/30 transition-colors ${hasNewReply ? "border-orange-300 bg-orange-50/50" : ""}`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${issue.severity === "STOPPING" ? "bg-red-500" : issue.severity === "SLOWING" ? "bg-yellow-500" : "bg-green-500"}`} />
-                        <span className="font-medium text-sm">{issue.title}</span>
-                        {hasNewReply && <Badge variant="destructive" className="text-[9px]">New Reply</Badge>}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground mt-1">
-                        {issue.workstream?.name} {issue.subTask && `· ${issue.subTask.name}`}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Open Issues</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Same list as the Open Issues tab — issues on your workstreams, assigned items, or where you’re mentioned. Expand an issue to comment here (or open in Open Issues to edit, assign, resolve).
+              </p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <Link href="/open-issues">
+              <Button variant="outline" size="sm" className="text-xs shrink-0">
+                View all in Open Issues →
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {myIssues.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No open issues on your items. <Link href="/open-issues" className="text-primary underline">Open Issues tab</Link> shows all workstream issues.
+            </p>
+          ) : (
+            <DashboardOpenIssues
+              issues={serializeForClient(myIssues) as Parameters<typeof DashboardOpenIssues>[0]["issues"]}
+              people={serializeForClient(allPeople) as Parameters<typeof DashboardOpenIssues>[0]["people"]}
+              seen={serializeForClient(seen) as Parameters<typeof DashboardOpenIssues>[0]["seen"]}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -337,7 +341,12 @@ async function loadBatch1(userId: string, person: { id: string } | null) {
             workstream: { select: { id: true, name: true, slug: true, color: true, programId: true, targetCompletionDate: true } },
           },
         },
-      },
+        completionNotes: {
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+      } as any,
       orderBy: [{ initiative: { workstream: { sortOrder: "asc" } } }, { initiative: { sortOrder: "asc" } }, { sortOrder: "asc" }],
     }) : Promise.resolve([]),
     person ? getMentionsForPerson(person.id).catch(() => []) : Promise.resolve([]),
@@ -378,45 +387,79 @@ async function loadBatch2(
       select: { id: true, name: true, fyStartYear: true, fyEndYear: true, startDate: true, targetDate: true },
     }) : Promise.resolve([]),
     (async () => {
+      const where = {
+        resolvedAt: null,
+        OR: [
+          { subTask: { initiative: { ownerId: userId } } },
+          ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
+          ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
+          ...(person ? [{ assignees: { some: { personId: person.id } } }] : []),
+          ...(person ? [{ comments: { some: { mentions: { some: { personId: person.id } } } } }] : []),
+        ],
+      } as const;
       try {
         return await prisma.openIssue.findMany({
-          where: {
-            resolvedAt: null,
-            OR: [
-              { subTask: { initiative: { ownerId: userId } } },
-              ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
-              ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
-              ...(person ? [{ assignees: { some: { personId: person.id } } }] : []),
-              ...(person ? [{ comments: { some: { mentions: { some: { personId: person.id } } } } }] : []),
-            ],
-          },
+          where,
           include: {
             workstream: { select: { name: true } },
             subTask: { select: { name: true } },
-            assignees: { include: { person: { select: { name: true, initials: true } } } },
-            comments: { orderBy: { createdAt: "desc" }, take: 1 },
+            assignees: { include: { person: { select: { id: true, name: true, initials: true } } } },
+            comments: {
+              orderBy: { createdAt: "asc" },
+              include: { mentions: { include: { person: { select: { id: true, name: true, initials: true } } } } },
+            },
           },
           orderBy: { createdAt: "desc" },
           take: 20,
         });
       } catch {
-        return await prisma.openIssue.findMany({
-          where: {
-            resolvedAt: null,
-            OR: [
-              { subTask: { initiative: { ownerId: userId } } },
-              ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
-              ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
-            ],
-          },
-          include: {
-            workstream: { select: { name: true } },
-            subTask: { select: { name: true } },
-            comments: { orderBy: { createdAt: "desc" }, take: 1 },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 20,
-        });
+        try {
+          return await prisma.openIssue.findMany({
+            where: {
+              resolvedAt: null,
+              OR: [
+                { subTask: { initiative: { ownerId: userId } } },
+                ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
+                ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
+              ],
+            },
+            include: {
+              workstream: { select: { name: true } },
+              subTask: { select: { name: true } },
+              assignees: { include: { person: { select: { id: true, name: true, initials: true } } } },
+              comments: {
+                orderBy: { createdAt: "asc" },
+                include: { mentions: { include: { person: { select: { id: true, name: true, initials: true } } } } },
+              },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          });
+        } catch {
+          return await prisma.openIssue.findMany({
+            where: {
+              resolvedAt: null,
+              OR: [
+                { subTask: { initiative: { ownerId: userId } } },
+                ...(person ? [{ subTask: { assigneeId: person.id } }] : []),
+                ...(myWsIds.length > 0 ? [{ workstreamId: { in: myWsIds }, subTaskId: null }] : []),
+              ],
+            },
+            include: {
+              workstream: { select: { name: true } },
+              subTask: { select: { name: true } },
+              comments: { orderBy: { createdAt: "asc" } },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+          }).then((rows) =>
+            rows.map((r) => ({
+              ...r,
+              assignees: [] as { person: { id: string; name: string; initials: string | null } }[],
+              comments: (r.comments as { id: string; parentId: string | null; body: string; authorName: string | null; createdAt: Date }[]).map((c) => ({ ...c, mentions: [] })),
+            }))
+          );
+        }
       }
     })(),
   ]);

@@ -115,6 +115,7 @@ export async function deleteOpenIssue(id: string) {
   await prisma.openIssue.delete({ where: { id } });
   revalidatePath("/open-issues");
   revalidatePath("/workstreams");
+  revalidatePath("/my-dashboard");
 }
 
 /* ─── Comments ─────────────────────────────────── */
@@ -268,6 +269,7 @@ export async function markMentionSeen(mentionId: string) {
 export async function deleteIssueComment(id: string) {
   await prisma.issueComment.delete({ where: { id } });
   revalidatePath("/open-issues");
+  revalidatePath("/my-dashboard");
 }
 
 /* ─── Notification tracking ─────────────────── */

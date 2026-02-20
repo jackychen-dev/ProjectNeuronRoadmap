@@ -36,7 +36,8 @@ interface ChartPoint {
 
 /* ─── Helpers ─── */
 
-function buildTimeline(program: ProgramRef, workstreams: WorkstreamData[]): BurnPeriod[] {
+/** Global timeline (program + latest workstream target) for fallback. */
+function buildGlobalTimeline(program: ProgramRef, workstreams: WorkstreamData[]): BurnPeriod[] {
   let startYear = 2000 + program.fyStartYear, startMonth = 1;
   if (program.startDate) { const d = new Date(program.startDate); startYear = d.getFullYear(); startMonth = d.getMonth() + 1; }
   let endYear = 2000 + program.fyEndYear, endMonth = 11;
@@ -45,6 +46,23 @@ function buildTimeline(program: ProgramRef, workstreams: WorkstreamData[]): Burn
     if (p && (p.year > endYear || (p.year === endYear && p.month > endMonth))) { endYear = p.year; endMonth = p.month; }
   }
   if (program.targetDate) { const d = new Date(program.targetDate); endYear = d.getFullYear(); endMonth = d.getMonth() + 1; }
+  return getMonthlyPeriods(startYear, startMonth, endYear, endMonth);
+}
+
+/** Per-workstream timeline so each chart reflects that workstream's start/finish (from workstreams/roadmap). */
+function buildWorkstreamTimeline(program: ProgramRef, ws: WorkstreamData): BurnPeriod[] {
+  let startYear = 2000 + program.fyStartYear, startMonth = 1;
+  if (program.startDate) { const d = new Date(program.startDate); startYear = d.getFullYear(); startMonth = d.getMonth() + 1; }
+  let endYear = 2000 + program.fyEndYear, endMonth = 11;
+  const p = parseTargetMonth(ws.targetCompletionDate);
+  if (p) {
+    endYear = p.year;
+    endMonth = p.month;
+  } else if (program.targetDate) {
+    const d = new Date(program.targetDate);
+    endYear = d.getFullYear();
+    endMonth = d.getMonth() + 1;
+  }
   return getMonthlyPeriods(startYear, startMonth, endYear, endMonth);
 }
 
@@ -115,11 +133,13 @@ export default function MyBurndownCharts({
 }) {
   const currentPeriod = useMemo(() => getCurrentPeriod(), []);
   const program = programs[0];
-  const allPeriods = useMemo(() => program ? buildTimeline(program, workstreams) : [], [program, workstreams]);
+  const allPeriods = useMemo(() => program ? buildGlobalTimeline(program, workstreams) : [], [program, workstreams]);
 
-  // Per-workstream chart data
+  // Per-workstream chart data — each workstream uses its own timeline (workstream target date = finish)
   const wsCharts = useMemo(() => {
+    if (!program) return [];
     return workstreams.filter(ws => myWsIds.includes(ws.id)).map(ws => {
+      const wsPeriods = buildWorkstreamTimeline(program, ws);
       let total = 0, completed = 0;
       for (const i of ws.initiatives) for (const t of i.subTasks) { total += t.points; completed += Math.round(t.points * (t.completionPercent / 100)); }
       const byDate = new Map<string, { totalPoints: number; completedPoints: number }>();
@@ -129,10 +149,10 @@ export default function MyBurndownCharts({
           if (entry) byDate.set(snap.date, { totalPoints: entry.totalPoints, completedPoints: entry.completedPoints });
         }
       }
-      const data = buildChartData(allPeriods, byDate, total, total - completed, total, currentPeriod);
+      const data = buildChartData(wsPeriods, byDate, total, total - completed, total, currentPeriod);
       return { id: ws.id, name: ws.name, color: ws.color, total, completed, data };
     });
-  }, [workstreams, myWsIds, snapshots, allPeriods, currentPeriod]);
+  }, [workstreams, myWsIds, snapshots, program, currentPeriod]);
 
   // Per-subcomponent chart data for ALL initiatives in the user's workstreams
   const initCharts = useMemo(() => {

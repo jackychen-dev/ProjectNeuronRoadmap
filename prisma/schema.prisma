@@ -33,6 +33,7 @@ model User {
   ownedInitiatives   Initiative[]   @relation("InitiativeOwner")
   authoredDocs       Documentation[]
   issueSeen          UserIssueSeen[]
+  subTaskCompletionNotes SubTaskCompletionNote[]
 }
 
 model Account {
@@ -188,6 +189,22 @@ model SubTask {
   initiative        Initiative @relation(fields: [initiativeId], references: [id], onDelete: Cascade)
   assignee          Person?    @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
   openIssues        OpenIssue[]
+  completionNotes   SubTaskCompletionNote[]
+}
+
+// ─── SUBTASK COMPLETION NOTE (reason + timestamp when % updated) ───
+model SubTaskCompletionNote {
+  id              String   @id @default(cuid())
+  subTaskId       String
+  previousPercent Int      // value before update
+  newPercent      Int      // value after update
+  reason          String   // comment/reason for the update
+  createdAt       DateTime @default(now())
+  userId          String?  // who wrote the comment (from their user account)
+
+  subTask         SubTask  @relation(fields: [subTaskId], references: [id], onDelete: Cascade)
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([subTaskId])
 }
 
 // ─── OPEN ISSUE ──────────────────────────────────────

@@ -71,12 +71,14 @@ function renderCommentBody(body: string) {
 /* ─── Component ──────────────────────────────────────── */
 
 export default function MyMentions({
-  mentions,
-  people,
+  mentions = [],
+  people = [],
 }: {
-  mentions: MentionData[];
-  people: PersonRef[];
+  mentions?: MentionData[] | null;
+  people?: PersonRef[] | null;
 }) {
+  const safeMentions = Array.isArray(mentions) ? mentions : [];
+  const safePeople = Array.isArray(people) ? people : [];
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const trackedSave = useTrackedSave();
@@ -92,14 +94,14 @@ export default function MyMentions({
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const filteredPeople = useMemo(() => {
-    if (!mentionFilter) return people;
+    if (!mentionFilter) return safePeople;
     const lower = mentionFilter.toLowerCase();
-    return people.filter(
+    return safePeople.filter(
       (p) =>
         p.name.toLowerCase().includes(lower) ||
         p.initials?.toLowerCase().includes(lower)
     );
-  }, [people, mentionFilter]);
+  }, [safePeople, mentionFilter]);
 
   function handleReplyKeyUp(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     const textarea = e.currentTarget;
@@ -133,12 +135,12 @@ export default function MyMentions({
     }, 0);
   }
 
-  const unseenCount = mentions.filter((m) => !m.seenAt).length;
+  const unseenCount = safeMentions.filter((m) => !m.seenAt).length;
 
   // Group mentions by issue for cleaner display
   const byIssue = useMemo(() => {
     const map = new Map<string, { issue: MentionIssue; mentions: MentionData[] }>();
-    for (const m of mentions) {
+    for (const m of safeMentions) {
       const existing = map.get(m.issueId);
       if (existing) {
         existing.mentions.push(m);
@@ -147,7 +149,7 @@ export default function MyMentions({
       }
     }
     return [...map.values()];
-  }, [mentions]);
+  }, [safeMentions]);
 
   function handleReply(issueId: string) {
     if (!replyText.trim()) return;
@@ -174,7 +176,7 @@ export default function MyMentions({
 
   function handleMarkAllSeen() {
     startTransition(async () => {
-      for (const m of mentions.filter((m) => !m.seenAt)) {
+      for (const m of safeMentions.filter((m) => !m.seenAt)) {
         await markMentionSeen(m.id);
       }
       router.refresh();

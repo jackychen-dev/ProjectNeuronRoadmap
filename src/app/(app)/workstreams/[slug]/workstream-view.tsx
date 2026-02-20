@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useCallback, memo, useEffect, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,15 @@ import {
 
 /* ─── Types ───────────────────────────────────────────── */
 
+interface CompletionNote {
+  id: string;
+  previousPercent: number;
+  newPercent: number;
+  reason: string;
+  createdAt: string;
+  user?: { id: string; name: string | null; email: string } | null;
+}
+
 interface SubTask {
   id: string;
   name: string;
@@ -39,6 +48,7 @@ interface SubTask {
   isAddedScope: boolean;
   assigneeId: string | null;
   assignedOrganization?: "ECLIPSE" | "ACCENTURE" | null;
+  completionNotes?: CompletionNote[];
 }
 
 interface Initiative {
@@ -263,9 +273,9 @@ export default function WorkstreamView({
     return set;
   }, [burnSnapshots]);
 
-  function refresh() {
+  const refresh = useCallback(() => {
     startTransition(() => { router.refresh(); });
-  }
+  }, [router]);
 
   function handleSaveProgress() {
     startTransition(async () => {
@@ -709,7 +719,7 @@ export default function WorkstreamView({
 
                     {/* Sub-task column headers */}
                     {init.subTasks.length > 0 && (
-                      <div className="grid grid-cols-[1fr_70px_90px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
+                      <div className="grid grid-cols-[1fr_60px_80px_44px_80px_80px_32px_32px_32px_40px_1fr_28px] gap-0.5 text-[9px] font-semibold text-muted-foreground px-2 border-b pb-1">
                         <span>Name</span>
                         <span>Assignee</span>
                         <span>Assigned Org</span>
@@ -729,32 +739,61 @@ export default function WorkstreamView({
                       <SubTaskRow key={st.id} subTask={st} people={people} onUpdate={refresh} trackedSave={trackedSave} />
                     ))}
 
-                    {/* Sub-task points summary bar */}
-                    {init.subTasks.length > 0 && (
-                      <div className="border rounded-lg p-3 bg-muted/30">
-                        <div className="flex justify-between text-xs font-semibold mb-1">
-                          <span>Sub-component progress</span>
-                          <span>{burndown}%</span>
+                    {/* Sub-task points summary bar + dropdown of all completion comments */}
+                    {init.subTasks.length > 0 && (() => {
+                      const allNotes = init.subTasks.flatMap((st) =>
+                        (st.completionNotes ?? []).map((n) => ({ subTaskName: st.name, ...n }))
+                      ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                      return (
+                        <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
+                          <div className="flex justify-between text-xs font-semibold mb-1">
+                            <span>Sub-component progress</span>
+                            <span>{burndown}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2.5">
+                            <div
+                              className="h-2.5 rounded-full bg-gradient-to-r from-blue-500 to-green-500 transition-all"
+                              style={{ width: `${burndown}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[10px] text-muted-foreground">
+                            <span>
+                              {rollup.total} pts total ({init.subTasks.length} sub-tasks)
+                              {init.subTasks.some(s => s.isAddedScope) && (
+                                <span className="ml-1 text-purple-600">
+                                  · {init.subTasks.filter(s => s.isAddedScope).reduce((s, t) => s + effectiveSubTaskPoints(t), 0)} added scope
+                                </span>
+                              )}
+                            </span>
+                            <span>{init.subTasks.filter(s => s.status === "DONE").length}/{init.subTasks.length} complete</span>
+                          </div>
+                          {allNotes.length > 0 && (
+                            <details className="group/details border rounded-md bg-background/80">
+                              <summary className="cursor-pointer list-none px-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1">
+                                <span>▼ Completion history ({allNotes.length})</span>
+                              </summary>
+                              <div className="px-2 pb-2 pt-0 space-y-1.5 max-h-48 overflow-y-auto text-xs border-t mt-1">
+                                {allNotes.map((n) => (
+                                  <div key={n.id} className="py-1.5 border-b border-muted/50 last:border-0">
+                                    <span className="font-semibold text-muted-foreground">{n.subTaskName}</span>
+                                    {" · "}
+                                    <span className="font-medium">{n.previousPercent}% → {n.newPercent}%</span>
+                                    {" — "}
+                                    <span>{n.reason}</span>
+                                    <span className="text-muted-foreground ml-1 block sm:inline">
+                                      {new Date(n.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
+                                      {n.user && (
+                                        <> · by {n.user.name ?? n.user.email}</>
+                                      )}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          )}
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                          <div
-                            className="h-2.5 rounded-full bg-gradient-to-r from-blue-500 to-green-500 transition-all"
-                            style={{ width: `${burndown}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                          <span>
-                            {rollup.total} pts total ({init.subTasks.length} sub-tasks)
-                            {init.subTasks.some(s => s.isAddedScope) && (
-                              <span className="ml-1 text-purple-600">
-                                · {init.subTasks.filter(s => s.isAddedScope).reduce((s, t) => s + effectiveSubTaskPoints(t), 0)} added scope
-                              </span>
-                            )}
-                          </span>
-                          <span>{init.subTasks.filter(s => s.status === "DONE").length}/{init.subTasks.length} complete</span>
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </div>
               )}
@@ -776,8 +815,9 @@ export default function WorkstreamView({
 
 /* ─── Sub-Task Row ─────────────────────────────────────── */
 
-function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: SubTask; people: Person[]; onUpdate: () => void; trackedSave: <T>(action: () => Promise<T>) => Promise<T | undefined> }) {
+const SubTaskRow = memo(function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: SubTask; people: Person[]; onUpdate: () => void; trackedSave: <T>(action: () => Promise<T>) => Promise<T | undefined> }) {
   const [isPending, startTransition] = useTransition();
+  const [savingProgress, setSavingProgress] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(st.name);
 
@@ -786,6 +826,8 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
   const [unknowns, setUnknowns] = useState<string>(st.unknowns || "None");
   const [integration, setIntegration] = useState<string>(st.integration || "Single system");
   const [completionInput, setCompletionInput] = useState<string>(String(st.completionPercent));
+  const [completionReason, setCompletionReason] = useState("");
+  const [optimisticNotes, setOptimisticNotes] = useState<CompletionNote[]>([]);
 
   // Compute story points from local state
   const sp: StoryPointsResult | null = useMemo(() => {
@@ -801,6 +843,26 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
   const barColor = st.completionPercent === 100 ? "bg-green-500" : st.completionPercent > 0 ? "bg-blue-500" : "bg-gray-300";
   const isBreakDown = sp?.flags.includes("break_down_required");
   const isVeryHigh = sp?.flags.includes("very_high_unknowns");
+
+  // Sync completion % from server after refresh
+  useEffect(() => {
+    setCompletionInput(String(st.completionPercent));
+  }, [st.completionPercent]);
+
+  // When server sends updated notes (after refresh), clear optimistic list so we show server data
+  const prevNotesLengthRef = useRef((st.completionNotes?.length ?? 0));
+  useEffect(() => {
+    const currentLen = st.completionNotes?.length ?? 0;
+    if (currentLen > prevNotesLengthRef.current) {
+      setOptimisticNotes([]);
+    }
+    prevNotesLengthRef.current = currentLen;
+  }, [st.completionNotes?.length]);
+
+  const displayNotes = useMemo(() => {
+    const combined = [...(st.completionNotes ?? []), ...optimisticNotes];
+    return combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [st.completionNotes, optimisticNotes]);
 
   function persistEstimation(overrides?: { days?: number | null; unknowns?: string | null; integration?: string | null }) {
     const d = overrides?.days !== undefined ? overrides.days : (typeof days === "number" ? days : null);
@@ -834,7 +896,7 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
       st.isAddedScope ? "border-purple-300 bg-purple-50/50 dark:bg-purple-950/10" :
       "hover:bg-accent/20"
     }`}>
-      <div className="grid grid-cols-[1fr_70px_90px_48px_90px_90px_36px_36px_36px_44px_80px_28px] gap-0.5 items-center">
+      <div className="grid grid-cols-[1fr_60px_80px_44px_80px_80px_32px_32px_32px_40px_1fr_28px] gap-0.5 items-center">
         {/* Name + Added Scope badge */}
         <div className="min-w-0">
           {editing ? (
@@ -939,6 +1001,7 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
           className="h-5 text-[10px] w-full px-1"
           value={days}
           min={0}
+          max={30}
           step={1}
           placeholder="—"
           onChange={(e) => {
@@ -1010,39 +1073,40 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
           )}
         </div>
 
-        {/* Completion % */}
-        <div className="flex items-center gap-0.5">
-          <div className="flex-1 bg-gray-200 rounded-full h-1">
+        {/* Completion %: bigger progress bar with room; other columns shifted left */}
+        <div className="min-w-0 flex items-center gap-2">
+          <div className="flex-1 min-w-[60px] bg-muted/80 rounded-full h-3 overflow-hidden">
             <div
-              className={`h-1 rounded-full transition-all ${barColor}`}
+              className={`h-3 rounded-full transition-all duration-200 ${barColor}`}
               style={{ width: `${st.completionPercent}%` }}
             />
           </div>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            step={1}
-            className="w-8 h-5 text-[9px] font-mono text-right border rounded px-0.5 bg-background"
-            value={completionInput}
-            onChange={(e) => setCompletionInput(e.target.value)}
-            onBlur={() => {
-              const val = Math.max(0, Math.min(100, parseInt(completionInput) || 0));
-              setCompletionInput(String(val));
-              if (val !== st.completionPercent) {
-                startTransition(async () => {
-                  await trackedSave(() => updateSubTaskCompletion(st.id, val));
-                  onUpdate();
-                });
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                (e.target as HTMLInputElement).blur();
-              }
-            }}
-          />
-          <span className="text-[8px] text-muted-foreground">%</span>
+          <div className="flex items-center gap-0.5 shrink-0 bg-background border border-input rounded-md shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              className="w-12 h-8 text-sm font-semibold font-mono text-right bg-transparent border-0 rounded-md px-1.5 py-0 focus:outline-none focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              value={completionInput}
+              onChange={(e) => setCompletionInput(e.target.value)}
+              onBlur={() => {
+                const val = Math.max(0, Math.min(100, parseInt(completionInput) || 0));
+                setCompletionInput(String(val));
+                if (val !== st.completionPercent) {
+                  startTransition(async () => {
+                    await trackedSave(() => updateSubTaskCompletion(st.id, val, completionReason || undefined));
+                    setCompletionReason("");
+                    onUpdate();
+                  });
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+            />
+            <span className="text-xs font-medium text-muted-foreground pr-1.5 select-none">%</span>
+          </div>
         </div>
 
         {/* Delete */}
@@ -1058,6 +1122,72 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
         >
           🗑
         </button>
+      </div>
+
+      {/* Directly under subcomponent: reason, Save, and completion history dropdown */}
+      <div className="mt-1.5 pt-1.5 border-t border-border/50 space-y-1.5">
+        <div className="flex gap-2 items-end flex-wrap">
+          <textarea
+            placeholder="Reason (optional) — then click Save"
+            rows={2}
+            className="flex-1 min-w-[200px] min-h-[2.5rem] text-xs border rounded px-2 py-1.5 bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+            value={completionReason}
+            onChange={(e) => setCompletionReason(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="default"
+            className="h-8 shrink-0 text-xs px-3"
+            disabled={savingProgress}
+            onClick={async () => {
+              const val = Math.max(0, Math.min(100, parseInt(completionInput) || 0));
+              setCompletionInput(String(val));
+              const reason = completionReason.trim();
+              if (reason) {
+                setOptimisticNotes((prev) => [
+                  ...prev,
+                  {
+                    id: `opt-${Date.now()}`,
+                    previousPercent: st.completionPercent,
+                    newPercent: val,
+                    reason,
+                    createdAt: new Date().toISOString(),
+                  },
+                ]);
+              }
+              setSavingProgress(true);
+              setCompletionReason("");
+              try {
+                await trackedSave(() => updateSubTaskCompletion(st.id, val, reason || undefined));
+                onUpdate();
+              } finally {
+                setSavingProgress(false);
+              }
+            }}
+          >
+            {savingProgress ? "Saving…" : "Save progress"}
+          </Button>
+        </div>
+        {displayNotes.length > 0 && (
+          <details className="group/details border rounded-md bg-muted/40" open={optimisticNotes.length > 0}>
+            <summary className="cursor-pointer list-none px-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1">
+              <span>▼ Completion history ({displayNotes.length})</span>
+            </summary>
+            <div className="px-2 pb-2 pt-0 space-y-1 max-h-40 overflow-y-auto text-xs border-t mt-0.5">
+              {displayNotes.map((n) => (
+                <div key={n.id} className="py-1 border-b border-muted/50 last:border-0">
+                  <span className="font-medium">{n.previousPercent}% → {n.newPercent}%</span>
+                  {" — "}
+                  <span>{n.reason}</span>
+                  <span className="text-muted-foreground ml-1">
+                    {new Date(n.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
+                    {"user" in n && n.user && <> · by {n.user.name ?? n.user.email}</>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </div>
 
       {/* Warning flags */}
@@ -1077,7 +1207,7 @@ function SubTaskRow({ subTask: st, people, onUpdate, trackedSave }: { subTask: S
       )}
     </div>
   );
-}
+});
 
 /* ─── Add Sub-Task Button ──────────────────────────────── */
 

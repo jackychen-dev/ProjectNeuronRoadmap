@@ -149,7 +149,7 @@ export default async function OpenIssuesPage() {
       <div>
         <h1 className="text-3xl font-bold">Open Issues</h1>
         <p className="text-muted-foreground mt-1">
-          Track issues that block or slow down workstream sub-tasks. Use @Name or @Initials in comments to notify people.
+          Track issues that block or slow down workstream sub-tasks. Use @Name or @Initials in comments to notify people. Same data as the Open Issues card on My Dashboard — resolve or comment here and it updates there.
         </p>
       </div>
       <OpenIssuesPageClient
