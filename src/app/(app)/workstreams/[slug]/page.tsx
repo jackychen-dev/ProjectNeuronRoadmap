@@ -63,14 +63,24 @@ export default async function WorkstreamDetailPage({
   type WsResult = { id: string; programId: string; initiatives: unknown[]; partnerLinks: unknown[] };
   let ws: WsResult | null = null;
 
-  // Try full query first (includes completionNotes so save-progress comments show). Fall back if schema is missing columns.
+  // Try safe query first (no SubTaskCompletionNote) so page always loads when production DB lacks userId column.
   try {
-    const full = await prisma.workstream.findFirst({
+    const bare = await prisma.workstream.findFirst({
       where: { slug },
-      include: fullWorkstreamInclude as any,
+      include: bareWorkstreamInclude as any,
     });
-    if (full && "initiatives" in full && Array.isArray(full.initiatives)) {
-      ws = full as unknown as WsResult;
+    if (bare && "initiatives" in bare && Array.isArray(bare.initiatives)) {
+      ws = {
+        ...bare,
+        partnerLinks: [],
+        initiatives: (bare.initiatives as unknown as { subTasks: object[] }[]).map((init) => ({
+          ...init,
+          milestones: [],
+          partnerLinks: [],
+          dependsOn: [],
+          subTasks: (init.subTasks || []).map((st) => ({ ...st, completionNotes: [] })),
+        })),
+      } as unknown as WsResult;
     }
   } catch {
     try {
@@ -89,22 +99,12 @@ export default async function WorkstreamDetailPage({
       }
     } catch {
       try {
-        const bare = await prisma.workstream.findFirst({
+        const full = await prisma.workstream.findFirst({
           where: { slug },
-          include: bareWorkstreamInclude as any,
+          include: fullWorkstreamInclude as any,
         });
-        if (bare && "initiatives" in bare && Array.isArray(bare.initiatives)) {
-          ws = {
-            ...bare,
-            partnerLinks: [],
-            initiatives: (bare.initiatives as unknown as { subTasks: object[] }[]).map((init) => ({
-              ...init,
-              milestones: [],
-              partnerLinks: [],
-              dependsOn: [],
-              subTasks: (init.subTasks || []).map((st) => ({ ...st, completionNotes: [] })),
-            })),
-          } as unknown as WsResult;
+        if (full && "initiatives" in full && Array.isArray(full.initiatives)) {
+          ws = full as unknown as WsResult;
         }
       } catch {
         // All failed
