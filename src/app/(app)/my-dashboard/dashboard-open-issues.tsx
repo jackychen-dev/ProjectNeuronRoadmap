@@ -159,7 +159,7 @@ function CommentTextareaWithMentions({
       />
       {mentionStart >= 0 && (
         <div
-          className="absolute z-10 mt-0.5 w-56 max-h-48 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
+          className="absolute z-[100] mt-0.5 w-56 max-h-48 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md"
           style={{ left: 0, top: "100%" }}
         >
           <p className="px-2 py-1 text-[10px] text-muted-foreground border-b">Type to search, Enter to pick</p>
@@ -324,7 +324,7 @@ function DashboardIssueRow({
   }
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="border rounded-lg overflow-visible">
       <button
         type="button"
         className={`w-full text-left p-3 hover:bg-accent/30 transition-colors flex items-center gap-2 flex-wrap ${hasNewReply ? "border-l-4 border-l-orange-400 bg-orange-50/50 dark:bg-orange-950/20" : ""}`}
@@ -346,7 +346,7 @@ function DashboardIssueRow({
       </div>
 
       {expanded && (
-        <div className="border-t p-4 space-y-3 bg-muted/20">
+        <div className="border-t p-4 space-y-3 bg-muted/20 overflow-visible">
           <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
             💬 Comments {commentCount > 0 && <span>({commentCount})</span>}
           </h4>
@@ -373,8 +373,8 @@ function DashboardIssueRow({
             <p className="text-[10px] text-primary">Replying to comment — your message will be nested below it.</p>
           )}
 
-          <div className="flex gap-2 items-start pt-1 border-t">
-            <div className="flex-1 space-y-1.5">
+          <div className="flex gap-2 items-start pt-1 border-t overflow-visible">
+            <div className="flex-1 space-y-1.5 min-w-0 overflow-visible">
               <div className="flex gap-2">
                 <Input
                   className="h-7 text-xs flex-1"
