@@ -36,12 +36,21 @@ const minimalWorkstreamInclude = {
     include: {
       milestones: { orderBy: { date: "asc" } },
       partnerLinks: { include: { partner: true } },
-      subTasks: {
-        orderBy: { sortOrder: "asc" },
-      },
+      subTasks: { orderBy: { sortOrder: "asc" } },
     },
   },
   partnerLinks: { include: { partner: true } },
+};
+
+/** Last resort: only workstream + initiatives + subTasks (no milestones, partnerLinks, dependsOn) */
+const bareWorkstreamInclude = {
+  initiatives: {
+    where: { archivedAt: null },
+    orderBy: { sortOrder: "asc" },
+    include: {
+      subTasks: { orderBy: { sortOrder: "asc" } },
+    },
+  },
 };
 
 export default async function WorkstreamDetailPage({
@@ -53,12 +62,8 @@ export default async function WorkstreamDetailPage({
   type WsResult = { id: string; programId: string; initiatives: unknown[]; partnerLinks: unknown[] };
   let ws: WsResult | null = null;
 
+  // Try minimal first (no SubTaskCompletionNote) so page loads when DB lacks userId column.
   try {
-    ws = await prisma.workstream.findFirst({
-      where: { slug },
-      include: fullWorkstreamInclude as any,
-    }) as WsResult | null;
-  } catch {
     const minimal = await prisma.workstream.findFirst({
       where: { slug },
       include: minimalWorkstreamInclude as any,
@@ -71,6 +76,41 @@ export default async function WorkstreamDetailPage({
           subTasks: init.subTasks.map((st) => ({ ...st, completionNotes: [] })),
         })),
       } as unknown as WsResult;
+    }
+  } catch {
+    try {
+      const bare = await prisma.workstream.findFirst({
+        where: { slug },
+        include: bareWorkstreamInclude as any,
+      });
+      if (bare && "initiatives" in bare && Array.isArray(bare.initiatives)) {
+        ws = {
+          ...bare,
+          partnerLinks: [],
+          initiatives: (bare.initiatives as unknown as { subTasks: object[] }[]).map((init) => ({
+            ...init,
+            milestones: [],
+            partnerLinks: [],
+            dependsOn: [],
+            subTasks: (init.subTasks || []).map((st) => ({ ...st, completionNotes: [] })),
+          })),
+        } as unknown as WsResult;
+      }
+    } catch {
+      // Bare fallback failed too
+    }
+  }
+
+  // If we have ws, optionally upgrade to full data (with completionNotes) when DB supports it.
+  if (ws) {
+    try {
+      const full = await prisma.workstream.findFirst({
+        where: { slug },
+        include: fullWorkstreamInclude as any,
+      }) as WsResult | null;
+      if (full) ws = full;
+    } catch {
+      // Keep ws from minimal (SubTaskCompletionNote.userId or other column may be missing)
     }
   }
 
