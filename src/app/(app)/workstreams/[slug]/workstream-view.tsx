@@ -1116,13 +1116,6 @@ const SubTaskRow = memo(function SubTaskRow({ subTask: st, people, onUpdate, tra
               onBlur={() => {
                 const val = Math.max(0, Math.min(100, parseInt(completionInput) || 0));
                 setCompletionInput(String(val));
-                if (val !== st.completionPercent) {
-                  startTransition(async () => {
-                    await trackedSave(() => updateSubTaskCompletion(st.id, val, completionReason || undefined));
-                    setCompletionReason("");
-                    onUpdate();
-                  });
-                }
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();

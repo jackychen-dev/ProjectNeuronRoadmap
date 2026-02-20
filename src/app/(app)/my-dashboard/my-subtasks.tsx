@@ -131,15 +131,6 @@ function EditableSubTaskRow({ subTask: initial }: { subTask: SubTaskData }) {
   function handleCompletionBlur() {
     const val = Math.max(0, Math.min(100, parseInt(completionInput) || 0));
     setCompletionInput(String(val));
-    if (val !== st.completionPercent) {
-      const newStatus = val === 100 ? "DONE" : val > 0 ? "IN_PROGRESS" : "NOT_STARTED";
-      setSt((prev) => ({ ...prev, completionPercent: val, status: newStatus }));
-      startTransition(async () => {
-        await trackedSave(() => updateSubTaskCompletion(st.id, val, completionReason || undefined));
-        setCompletionReason("");
-        refresh();
-      });
-    }
   }
 
   function handleStatusChange(newStatus: string) {
