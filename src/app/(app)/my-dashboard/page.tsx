@@ -40,6 +40,15 @@ export default async function MyDashboardPage() {
           where: { name: { equals: displayName, mode: "insensitive" } },
         });
         if (byName.length === 1) person = byName[0];
+        if (!person && displayName.includes(" ")) {
+          const initials = displayName.split(/\s+/).map((s) => s[0]).join("").toUpperCase().slice(0, 4);
+          if (initials.length >= 2) {
+            const byInitials = await prisma.person.findMany({
+              where: { initials: { equals: initials, mode: "insensitive" } },
+            });
+            if (byInitials.length === 1) person = byInitials[0];
+          }
+        }
       }
     }
   } catch {
@@ -345,14 +354,10 @@ async function loadBatch1(userId: string, person: { id: string } | null) {
             workstream: { select: { id: true, name: true, slug: true, color: true, programId: true, targetCompletionDate: true } },
           },
         },
-        completionNotes: {
-          orderBy: { createdAt: "desc" },
-          take: 20,
-          include: { user: { select: { id: true, name: true, email: true } } },
-        },
-      } as any,
+        /* omit completionNotes so query works when SubTaskCompletionNote.userId is missing in production */
+      },
       orderBy: [{ initiative: { workstream: { sortOrder: "asc" } } }, { initiative: { sortOrder: "asc" } }, { sortOrder: "asc" }],
-    }) : Promise.resolve([]),
+    }).then((tasks) => tasks.map((st) => ({ ...st, completionNotes: [] as any }))) : Promise.resolve([]),
     person ? getMentionsForPerson(person.id).catch(() => []) : Promise.resolve([]),
     prisma.person.findMany({
       orderBy: { name: "asc" },
