@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import MySubtasksList from "./my-subtasks";
 import MyBurndownCharts from "./my-burndown-charts";
-import MyMentions from "./my-mentions";
 import { DashboardOpenIssues } from "./dashboard-open-issues";
 import { getMentionsForPerson } from "@/lib/actions/open-issues";
 
@@ -60,9 +59,18 @@ export default async function MyDashboardPage() {
     // Use empty arrays so dashboard still renders
   }
 
-  const myWsIds = [...new Set(mySubTasks.map((st: any) => st.initiative?.workstream?.id).filter(Boolean))];
-  const myInitIds = [...new Set(mySubTasks.map((st: any) => st.initiative?.id).filter(Boolean))];
-  const myProgramIds = [...new Set(mySubTasks.map((st: any) => st.initiative?.workstream?.programId).filter(Boolean))];
+  const myWsIds = [...new Set([
+    ...myInitiatives.map((i: any) => i.workstream?.id),
+    ...mySubTasks.map((st: any) => st.initiative?.workstream?.id),
+  ].filter(Boolean))];
+  const myInitIds = [...new Set([
+    ...myInitiatives.map((i: any) => i.id),
+    ...mySubTasks.map((st: any) => st.initiative?.id),
+  ].filter(Boolean))];
+  const myProgramIds = [...new Set([
+    ...myInitiatives.map((i: any) => i.workstream?.programId),
+    ...mySubTasks.map((st: any) => st.initiative?.workstream?.programId),
+  ].filter(Boolean))];
 
   // ── Batch 2: workstreams, snapshots, programs, issues (with fallback on error) ──
   let myWorkstreamsForBurn: Awaited<ReturnType<typeof loadBatch2>>[0] = [];
@@ -272,18 +280,13 @@ export default async function MyDashboardPage() {
         />
       )}
 
-      <MyMentions
-        mentions={serializeForClient(myMentions) as unknown as Parameters<typeof MyMentions>[0]["mentions"]}
-        people={serializeForClient(allPeople) as unknown as Parameters<typeof MyMentions>[0]["people"]}
-      />
-
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Open Issues</CardTitle>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Same list as the Open Issues tab — issues on your workstreams, assigned items, or where you’re mentioned. Expand an issue to comment here (or open in Open Issues to edit, assign, resolve).
+                Issues on your workstreams, assigned to you, or where you’re @mentioned. Expand to comment here (or open in Open Issues to edit, assign, resolve).
               </p>
             </div>
             <Link href="/open-issues">
@@ -322,7 +325,7 @@ async function loadBatch1(userId: string, person: { id: string } | null) {
         ],
       },
       include: {
-        workstream: { select: { name: true, slug: true, color: true } },
+        workstream: { select: { id: true, name: true, slug: true, color: true, programId: true } },
         subTasks: {
           orderBy: { sortOrder: "asc" },
           include: {
